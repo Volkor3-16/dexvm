@@ -28,7 +28,7 @@ fn init_logger() {
 #[test]
 fn mihon_preference_definitions_and_roundtrip() {
     init_logger();
-    let dir = std::env::temp_dir().join(format!("dexvm-prefs-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("dexvm-prefs-roundtrip-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let prefs_path = dir.join("prefs.bin");
     let _ = std::fs::remove_file(&prefs_path);
@@ -114,7 +114,7 @@ fn mihon_preference_definitions_and_roundtrip() {
 #[test]
 fn pre16_switch_preference_definitions() {
     init_logger();
-    let dir = std::env::temp_dir().join(format!("dexvm-prefs-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("dexvm-prefs-pre16-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let prefs_path = dir.join("prefs.bin");
     let _ = std::fs::remove_file(&prefs_path);
