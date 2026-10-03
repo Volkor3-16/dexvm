@@ -14,7 +14,6 @@ pub(crate) const SCHAPTER: &str = "Leu/kanade/tachiyomi/source/model/SChapter;";
 // pub(crate) const PAGE: &str = "Leu/kanade/tachiyomi/source/model/Page;";
 pub(crate) const FILTER_LIST: &str = "Leu/kanade/tachiyomi/source/model/FilterList;";
 pub(crate) const FILTER: &str = "Leu/kanade/tachiyomi/source/model/Filter;";
-pub(crate) const HEADERS: &str = "Lokhttp3/Headers;";
 pub(crate) const RESPONSE: &str = "Lokhttp3/Response;";
 pub(crate) const REQUEST: &str = "Lokhttp3/Request;";
 
@@ -257,8 +256,17 @@ pub(crate) fn http_source_get_base_url(vm: &mut Vm, args: &[JValue]) -> R {
     http_source_abstract(vm, args, "getBaseUrl")
 }
 
-pub(crate) fn http_source_get_headers_default(vm: &mut Vm, _args: &[JValue]) -> R {
-    alloc(vm, HEADERS, Native::Headers(Vec::new()))
+pub(crate) fn http_source_get_headers_default(vm: &mut Vm, args: &[JValue]) -> R {
+    // HttpSource.getHeaders is backed by the virtual headersBuilder override.
+    // Extensions such as ManhwaWeb set their image Referer and Origin there.
+    let builder = inv_virt(
+        vm,
+        args[0],
+        "headersBuilder",
+        "()Lokhttp3/Headers$Builder;",
+        &[],
+    )?;
+    super::okhttp::headers_builder_build(vm, &[builder])
 }
 
 pub(crate) fn http_source_headers_builder(vm: &mut Vm, _args: &[JValue]) -> R {
@@ -333,16 +341,11 @@ fn http_source_get_suspend(
     parse_name: &str,
     parse_sig: &str,
 ) -> R {
-    let result = (|| {
+    (|| {
         let request = inv_virt(vm, args[0], request_name, request_sig, request_args)?;
         let response = keiyoushi_execute(vm, &[request])?;
         inv_virt(vm, args[0], parse_name, parse_sig, &[response])
-    })();
-    match result {
-        Ok(value) => Ok(value),
-        Err(NatErr::Throw(error)) => Err(NatErr::Throw(error)),
-        Err(error) => Err(error),
-    }
+    })()
 }
 
 fn http_source_get_popular(vm: &mut Vm, args: &[JValue]) -> R {

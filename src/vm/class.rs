@@ -1918,6 +1918,17 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0
     ),
+    shim!(
+        "Lkotlin/jvm/internal/StringCompanionObject;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlin/jvm/internal/StringCompanionObject;",
+            ShimValue::Lazy(native::lazy_string_companion)
+        )]
+    ),
     // kotlinx.serialization JSON pipeline (cached filter lists, moetruyen)
     #[cfg(feature = "tachiyomi")]
     shim!(
@@ -2134,6 +2145,30 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
             "INSTANCE",
             "Lkotlinx/serialization/internal/LongSerializer;",
             ShimValue::Lazy(native::lazy_long_serializer)
+        )]
+    ),
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/internal/FloatSerializer;",
+        Some("Ljava/lang/Object;"),
+        &["Lkotlinx/serialization/KSerializer;"],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/internal/FloatSerializer;",
+            ShimValue::Lazy(native::lazy_float_serializer)
+        )]
+    ),
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/internal/DoubleSerializer;",
+        Some("Ljava/lang/Object;"),
+        &["Lkotlinx/serialization/KSerializer;"],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/internal/DoubleSerializer;",
+            ShimValue::Lazy(native::lazy_double_serializer)
         )]
     ),
     #[cfg(feature = "tachiyomi")]

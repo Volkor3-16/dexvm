@@ -192,13 +192,6 @@ fn match_groups(c: &fancy_regex::Captures<'_, String>) -> Vec<Option<(usize, usi
     for i in 0..c.len() {
         groups.push(c.get(i).map(|m| (m.start(), m.end())));
     }
-    // The VM path stores an extra pseudo group 0 (the whole match) before
-    // the real group 0; drop the duplicate so the list lines up with Kotlin
-    // `MatchResult.groupValues` (index 0 = whole match, then one entry per
-    // capturing group).
-    if groups.len() >= 2 && groups[0].is_some() && groups[1] == groups[0] {
-        groups.remove(1);
-    }
     groups
 }
 
@@ -234,7 +227,7 @@ fn regex_to_string(vm: &mut Vm, args: &[JValue]) -> R {
 // kotlin.collections.CollectionsKt (statics)
 // ---------------------------------------------------------------------------
 
-/// `CollectionsKt.build(list)` — the builder is already the final list.
+// `CollectionsKt.build(list)` — the builder is already the final list.
 
 fn stringskt_starts_with_default(vm: &mut Vm, args: &[JValue]) -> R {
     let s = charseq_of(vm, args[0])?;
@@ -253,9 +246,9 @@ fn stringskt_starts_with_default(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(JValue::Int(r as i32))
 }
 
-/// kotlin.collections.joinToString with the compiler-generated `$default`
-/// marker: (iterable, separator, prefix, postfix, limit, truncated,
-/// transform, mask, marker).
+// kotlin.collections.joinToString with the compiler-generated `$default`
+// marker: (iterable, separator, prefix, postfix, limit, truncated,
+// transform, mask, marker).
 
 // kotlin.text
 // ---------------------------------------------------------------------------
@@ -468,7 +461,7 @@ fn rfind_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
     let haystack_chars: Vec<(usize, char)> = haystack.char_indices().collect();
     haystack_chars
         .windows(needle_chars.len())
-        .filter(|window| {
+        .rfind(|window| {
             window
                 .iter()
                 .zip(&needle_chars)
@@ -476,7 +469,6 @@ fn rfind_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
                     hay_char.to_lowercase().next() == needle_char.to_lowercase().next()
                 })
         })
-        .last()
         .map(|window| window[0].0)
 }
 
@@ -743,8 +735,35 @@ fn match_result_get_value(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 fn match_result_destructured_to_list(vm: &mut Vm, args: &[JValue]) -> R {
-    let value = match_result_get_value(vm, args)?;
-    list_alloc(vm, vec![value])
+    let values = match payload(vm, args[0]) {
+        Some(Native::Matcher(ms)) => ms
+            .groups
+            .iter()
+            .skip(1)
+            .map(|group| match group {
+                Some((start, end)) => ms.text.get(*start..*end).unwrap_or("").to_string(),
+                None => String::new(),
+            })
+            .collect::<Vec<_>>(),
+        _ => return Err(npe(vm)),
+    };
+    let values = values
+        .into_iter()
+        .map(|value| new_str(vm, &value))
+        .collect();
+    list_alloc(vm, values)
+}
+
+fn match_result_get_destructured(vm: &mut Vm, args: &[JValue]) -> R {
+    let state = match payload(vm, args[0]) {
+        Some(Native::Matcher(ms)) => ms.clone(),
+        _ => return Err(npe(vm)),
+    };
+    alloc(
+        vm,
+        "Lkotlin/text/MatchResult$Destructured;",
+        Native::Matcher(state),
+    )
 }
 
 /// `MatchResult.getGroupValues` — the whole match followed by every
@@ -782,9 +801,9 @@ fn match_group_get_value(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(new_str(vm, &value))
 }
 
-/// Kotlin's ISO-8601 parser used by extension date filters.  This accepts the
-/// common UTC form (`YYYY-MM-DDTHH:MM:SS[.fraction]Z`) and returns null for
-/// malformed/unsupported values, matching `parseOrNull`.
+// Kotlin's ISO-8601 parser used by extension date filters.  This accepts the
+// common UTC form (`YYYY-MM-DDTHH:MM:SS[.fraction]Z`) and returns null for
+// malformed/unsupported values, matching `parseOrNull`.
 
 // java.net.URI
 // ---------------------------------------------------------------------------
@@ -1468,7 +1487,7 @@ fn stringskt_find_any_of_default(vm: &mut Vm, args: &[JValue]) -> R {
             hay.find(needle)
         };
         if let Some(index) = found {
-            if best.map_or(true, |(b, _)| index < b) {
+            if best.is_none_or(|(b, _)| index < b) {
                 best = Some((index, needle));
             }
         }
@@ -1812,7 +1831,7 @@ fn ustrings_to_string_radix(vm: &mut Vm, args: &[JValue]) -> R {
 // kotlin.time.Duration value-class methods (host stdlib)
 // ---------------------------------------------------------------------------
 
-/// `Duration.getInWholeMilliseconds-impl(J)J`; raw unit is milliseconds.
+// `Duration.getInWholeMilliseconds-impl(J)J`; raw unit is milliseconds.
 
 // ---------------------------------------------------------------------------
 // kotlin stdlib native table
@@ -1864,6 +1883,7 @@ pub(crate) const KOTLIN_TABLE: &[NativeEntry] = &[
     ne!("Lkotlin/text/CharsKt;", "titlecase", "(CLjava/util/Locale;)Ljava/lang/String;", false, charskt_titlecase),
     ne!("Lkotlin/text/MatchResult;", "getValue", "()Ljava/lang/String;", true, match_result_get_value),
     ne!("Lkotlin/text/MatchResult;", "getGroupValues", "()Ljava/util/List;", true, match_result_get_group_values),
+    ne!("Lkotlin/text/MatcherMatchResult;", "getDestructured", "()Lkotlin/text/MatchResult$Destructured;", true, match_result_get_destructured),
     ne!("Lkotlin/text/MatchResult$Destructured;", "toList", "()Ljava/util/List;", true, match_result_destructured_to_list),
     ne!("Lkotlin/text/MatchGroup;", "getValue", "()Ljava/lang/String;", true, match_group_get_value),
     ne!("Lkotlin/text/MatcherMatchResult;", "getValue", "()Ljava/lang/String;", true, match_result_get_value),
