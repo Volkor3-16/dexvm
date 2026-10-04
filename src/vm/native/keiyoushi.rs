@@ -360,6 +360,35 @@ fn http_source_get_popular(vm: &mut Vm, args: &[JValue]) -> R {
     )
 }
 
+/// Host default for `searchMangaRequest`: builds GET request with query and filters.
+pub(crate) fn http_source_search_manga_request(vm: &mut Vm, args: &[JValue]) -> R {
+    let src = args[0];
+    let page = match args[1] {
+        JValue::Int(i) => i,
+        _ => return Err(npe(vm)),
+    };
+    let query = match jstr(vm, args[2]) {
+        Ok(s) => s,
+        Err(_) => String::new(),
+    };
+    let base_url = match source_base_url(vm, src) {
+        Ok(u) => u,
+        Err(_) => return Err(npe(vm)),
+    };
+    let url = format!("{}/search?q={}&page={}", base_url.trim_end_matches('/'), urlencoding::encode(&query), page);
+    let request = alloc(
+        vm,
+        REQUEST,
+        Native::Request {
+            url,
+            method: "GET".into(),
+            headers: Vec::new(),
+            body: None,
+        },
+    )?;
+    keiyoushi_execute(vm, &[request])
+}
+
 fn http_source_get_search(vm: &mut Vm, args: &[JValue]) -> R {
     http_source_get_suspend(
         vm,
@@ -385,12 +414,16 @@ fn http_source_get_latest(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 fn http_source_get_details(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 2 {
+        return Err(nat_fatal(JvmError::Resolution("mangaDetailsRequest requires at least 2 arguments".into())));
+    }
+    let request_args = &args[1..2];
     http_source_get_suspend(
         vm,
         args,
         "mangaDetailsRequest",
         "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;",
-        &args[1..2],
+        request_args,
         "mangaDetailsParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/SManga;",
     )
@@ -425,6 +458,9 @@ fn http_source_prepare_new_chapter(_vm: &mut Vm, _args: &[JValue]) -> R {
 }
 
 fn http_source_fetch_details(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 2 {
+        return Err(nat_fatal(JvmError::Resolution("mangaDetailsRequest requires at least 2 arguments".into())));
+    }
     http_source_fetch(
         vm,
         args[0],
@@ -437,6 +473,9 @@ fn http_source_fetch_details(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 fn http_source_fetch_chapters(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 2 {
+        return Err(nat_fatal(JvmError::Resolution("chapterListRequest requires at least 2 arguments".into())));
+    }
     http_source_fetch(
         vm,
         args[0],
@@ -582,6 +621,26 @@ pub(crate) fn http_source_chapter_list_request(vm: &mut Vm, args: &[JValue]) -> 
 
 pub(crate) fn http_source_page_list_request(vm: &mut Vm, args: &[JValue]) -> R {
     http_source_get_request(vm, args[0], args[1])
+}
+
+/// Parse response body into SMangasPage for popular/search results.
+pub(crate) fn http_source_popular_manga_parse(vm: &mut Vm, args: &[JValue]) -> R {
+    http_source_popular_manga_parse(vm, &[args[0]])
+}
+
+/// Parse response body into SMangasPage for search results.
+pub(crate) fn http_source_search_manga_parse(vm: &mut Vm, args: &[JValue]) -> R {
+    http_source_popular_manga_parse(vm, &[args[0]])
+}
+
+/// Parse response body into List<SChapter> for chapter list.
+pub(crate) fn http_source_chapter_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
+    http_source_fetch_chapters(vm, &[args[0]])
+}
+
+/// Parse response body into SManga for manga details.
+pub(crate) fn http_source_manga_details_parse(vm: &mut Vm, args: &[JValue]) -> R {
+    http_source_fetch_details(vm, &[args[0]])
 }
 
 /// Host default for `imageRequest`: `GET page.imageUrl`.
@@ -1711,6 +1770,10 @@ pub const KEIYOUSHI_TABLE: &[NativeEntry] = &[
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "relatedMangaListRequest", "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;", true, http_source_manga_details_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "chapterListRequest", "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;", true, http_source_chapter_list_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "pageListRequest", "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;", true, http_source_page_list_request),
+    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "popularMangaParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_popular_manga_parse),
+    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "searchMangaParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_search_manga_parse),
+    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "chapterListParse", "(Lokhttp3/Response;)Ljava/util/List;", true, http_source_chapter_list_parse),
+    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "mangaDetailsParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/SManga;", true, http_source_manga_details_parse),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "getMangaUrl", "(Leu/kanade/tachiyomi/source/model/SManga;)Ljava/lang/String;", true, http_source_get_manga_url),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "getChapterUrl", "(Leu/kanade/tachiyomi/source/model/SChapter;)Ljava/lang/String;", true, http_source_get_chapter_url),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "imageRequest", "(Leu/kanade/tachiyomi/source/model/Page;)Lokhttp3/Request;", true, http_source_image_request),
