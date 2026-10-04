@@ -1521,6 +1521,14 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         0
     ),
     shim!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        Some("Ljava/lang/Object;"),
+        &[
+            "Ljava/io/Serializable;"
+        ],
+        0
+    ),
+    shim!(
         "Ljava/util/concurrent/locks/Condition;",
         None,
         &[],
@@ -1996,12 +2004,79 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0
     ),
+    // Missing kotlinx.serialization serializer classes with INSTANCE static fields
     #[cfg(feature = "tachiyomi")]
     shim!(
-        "Lkotlinx/serialization/json/JsonLiteral;",
-        Some("Lkotlinx/serialization/json/JsonPrimitive;"),
+        "Lkotlinx/serialization/json/JsonElementSerializer;",
+        Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/json/JsonElementSerializer;",
+            ShimValue::Lazy(native::lazy_json_element_serializer_instance)
+        )]
+    ),
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/json/JsonArraySerializer;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/json/JsonArraySerializer;",
+            ShimValue::Lazy(native::lazy_json_array_serializer_instance)
+        )]
+    ),
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/json/JsonPrimitiveSerializer;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/json/JsonPrimitiveSerializer;",
+            ShimValue::Lazy(native::lazy_json_primitive_serializer_instance)
+        )]
+    ),
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/json/JsonObjectSerializer;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/json/JsonObjectSerializer;",
+            ShimValue::Lazy(native::lazy_json_object_serializer_instance)
+        )]
+    ),
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/json/JsonNullSerializer;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/json/JsonNullSerializer;",
+            ShimValue::Lazy(native::lazy_json_null_serializer_instance)
+        )]
+    ),
+    // Json$Default with INSTANCE
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/serialization/json/Json$Default;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/serialization/json/Json$Default;",
+            ShimValue::Lazy(native::lazy_json_default_instance)
+        )]
     ),
     #[cfg(feature = "tachiyomi")]
     shim!(
@@ -3590,7 +3665,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlinx/coroutines/sync/Mutex;",
         None,
         &[],
-        ACC_INTERFACE | ACC_ABSTRACT
+        ACC_INTERFACE
     ),
     #[cfg(feature = "tachiyomi")]
     shim!(

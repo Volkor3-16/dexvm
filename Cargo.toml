@@ -89,6 +89,11 @@ required-features = ["keiyoushi"]
 name = "live_keiyoushi_coro"
 required-features = ["keiyoushi"]
 
+[[bin]]
+name = "exttest"
+path = "src/bin/exttest.rs"
+required-features = ["keiyoushi"]
+
 [dependencies]
 fancy-regex = "0.19.0"
 zip = "8.6.0"
@@ -104,7 +109,10 @@ base64 = "0.22"
 aes-gcm = "0.11.0"
 log = "0.4"
 png = { version = "0.17", optional = true }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
+chrono = { version = "0.4", features = ["serde"] }
+ureq = { version = "3.4", features = ["cookies"] }
 rquickjs = { version = "0.12.2", optional = true }
 zune-png = { version = "0.5.2", default-features = false, optional = true }
 zune-jpeg = { version = "0.5.15", default-features = false, optional = true }

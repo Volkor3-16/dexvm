@@ -1,3 +1,9 @@
 /target
 fixtures/live/
 fixtures/batch/
+report_*.json
+fixtures/keiyoushi_all/*.apk
+report2.json
+report.json
+aggregated_report.json
+FIXES/

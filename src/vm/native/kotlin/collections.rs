@@ -44,7 +44,13 @@ pub(super) fn collections_remove_all(vm: &mut Vm, args: &[JValue]) -> R {
                 vec![value],
             )
             .map_err(nat_fatal)?;
-        if result.as_int() != 0 {
+        // Predicate should return boolean (int), but handle gracefully if it returns object
+        let matches = match result {
+            JValue::Int(i) => i != 0,
+            JValue::Null => false,
+            _ => false, // Unexpected type, treat as false
+        };
+        if matches {
             removed = true;
         } else {
             kept.push(value);

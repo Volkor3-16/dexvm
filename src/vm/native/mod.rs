@@ -883,6 +883,10 @@ pub(crate) fn inv_virt(
     sig: &str,
     extra: &[JValue],
 ) -> Result<JValue, NatErr> {
+    // Handle null references (both Null and Int(0))
+    if recv.is_null_ref() {
+        return Err(nat_fatal(JvmError::Fatal("invoke_virtual on null".into())));
+    }
     let mref = MethodRef {
         name: vm.intern(name),
         sig: vm.intern(sig),
@@ -924,9 +928,12 @@ pub(crate) fn to_string_of(vm: &mut Vm, v: JValue) -> Result<String, NatErr> {
 
 /// java.util.Objects.equals semantics.
 pub(crate) fn java_equals(vm: &mut Vm, a: JValue, b: JValue) -> Result<bool, NatErr> {
+    // Treat Int(0) as null reference (DEX null encoding)
+    let a_is_null = a.is_null_ref();
+    let b_is_null = b.is_null_ref();
     let r = match (a, b) {
-        (JValue::Null, JValue::Null) => true,
-        (JValue::Null, _) | (_, JValue::Null) => false,
+        (_, _) if a_is_null && b_is_null => true,
+        (_, _) if a_is_null || b_is_null => false,
         (JValue::Int(x), JValue::Int(y)) => x == y,
         (JValue::Long(x), JValue::Long(y)) => x == y,
         (JValue::Float(x), JValue::Float(y)) => x.to_bits() == y.to_bits(),

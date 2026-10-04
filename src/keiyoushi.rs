@@ -810,7 +810,7 @@ impl Keiyoushi {
         };
         let mut out = Vec::with_capacity(items.len());
         for f in items {
-            let id = f.as_obj();
+            let Some(id) = f.as_obj_opt() else { continue; };
             let kind = self.filter_kind(id);
             if let Some(Native::SFilter {
                 name,
@@ -828,7 +828,7 @@ impl Keiyoushi {
                         options: self.str_options(options)?,
                     });
                     for c in children {
-                        let cid = c.as_obj();
+                        let Some(cid) = c.as_obj_opt() else { continue; };
                         let k = self.filter_kind(cid);
                         if let Some(Native::SFilter {
                             name,

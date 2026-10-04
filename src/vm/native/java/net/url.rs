@@ -148,6 +148,9 @@ fn form_decode(value: &str) -> Vec<u8> {
 }
 
 pub(crate) fn url_encoder_encode(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 3 {
+        return Err(iae(vm, "URLEncoder.encode requires 2 arguments"));
+    }
     let value = jstr(vm, args[1])?;
     let charset = jstr(vm, args[2])?;
     let Some(charset) = super::super::nio::normalize_charset(&charset) else {
@@ -158,6 +161,9 @@ pub(crate) fn url_encoder_encode(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn url_decoder_decode(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 3 {
+        return Err(iae(vm, "URLDecoder.decode requires 2 arguments"));
+    }
     let value = jstr(vm, args[1])?;
     let charset = jstr(vm, args[2])?;
     let Some(charset) = super::super::nio::normalize_charset(&charset) else {

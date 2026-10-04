@@ -1094,7 +1094,7 @@ impl Vm {
             args: Vec::new(),
             class_desc: 0,
         };
-        if receiver.is_null() {
+        if receiver.is_null_ref() {
             return Err(JvmError::Fatal("invoke_virtual on null".into()));
         }
         let recv = receiver.as_obj();
@@ -1118,7 +1118,7 @@ impl Vm {
             args: Vec::new(),
             class_desc: 0,
         };
-        if receiver.is_null() {
+        if receiver.is_null_ref() {
             return Err(JvmError::Fatal("invoke_virtual on null".into()));
         }
         let recv = receiver.as_obj();
@@ -1266,7 +1266,7 @@ impl Vm {
 
     /// String payload of a java.lang.String value, if any.
     pub fn str_of_jvalue(&self, v: JValue) -> Option<String> {
-        if v.is_null() {
+        if v.is_null_ref() {
             return None;
         }
         let id = v.as_obj();
@@ -1278,7 +1278,7 @@ impl Vm {
 
     /// Owned payload for a non-null object value.
     pub fn payload_of(&self, v: JValue) -> Option<object::Native> {
-        if v.is_null() {
+        if v.is_null_ref() {
             return None;
         }
         let id = v.as_obj();
@@ -1287,7 +1287,7 @@ impl Vm {
 
     /// Resolved class id for a non-null object value.
     pub fn object_class(&self, v: JValue) -> Option<u32> {
-        if v.is_null() {
+        if v.is_null_ref() {
             return None;
         }
         let id = v.as_obj();

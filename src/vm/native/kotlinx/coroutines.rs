@@ -51,19 +51,25 @@ pub(crate) fn completable_deferred_default(vm: &mut Vm, _args: &[JValue]) -> R {
     )
 }
 pub(crate) fn mutex_default(vm: &mut Vm, _args: &[JValue]) -> R {
-    alloc(
-        vm,
-        "Lkotlinx/coroutines/sync/Mutex;",
-        Native::Mutex { locked: false },
-    )
+    // Create a simple mutex implementation using Native::Mutex
+    // The class will be set to the Mutex interface, which now has default methods
+    let mutex_class = vm.ensure_class_by_desc("Lkotlinx/coroutines/sync/Mutex;").map_err(|e| iae(vm, &e.to_string()))?;
+    let mutex_obj = vm.arena.alloc(
+        mutex_class,
+        Vec::new(),
+        Some(Native::Mutex { locked: false }),
+    );
+    Ok(JValue::Obj(mutex_obj))
 }
 pub(crate) fn mutex_lock(vm: &mut Vm, args: &[JValue]) -> R {
+    // Non-suspend lock (not commonly used)
     let Some(Native::Mutex { locked }) = payload_mut(vm, args[0]) else {
         return Err(npe(vm));
     };
     *locked = true;
     Ok(JValue::Null)
 }
+
 pub(crate) fn mutex_try_lock(vm: &mut Vm, args: &[JValue]) -> R {
     let Some(Native::Mutex { locked }) = payload_mut(vm, args[0]) else {
         return Err(npe(vm));
@@ -74,6 +80,7 @@ pub(crate) fn mutex_try_lock(vm: &mut Vm, args: &[JValue]) -> R {
     *locked = true;
     Ok(JValue::Int(1))
 }
+
 pub(crate) fn mutex_unlock(vm: &mut Vm, args: &[JValue]) -> R {
     let Some(Native::Mutex { locked }) = payload_mut(vm, args[0]) else {
         return Err(npe(vm));
@@ -84,12 +91,14 @@ pub(crate) fn mutex_unlock(vm: &mut Vm, args: &[JValue]) -> R {
     *locked = false;
     Ok(JValue::Null)
 }
+
 pub(crate) fn mutex_is_locked(vm: &mut Vm, args: &[JValue]) -> R {
     match payload(vm, args[0]) {
         Some(Native::Mutex { locked }) => Ok(JValue::Int(i32::from(*locked))),
         _ => Err(npe(vm)),
     }
 }
+
 pub(crate) fn coroutines_launch_default(vm: &mut Vm, args: &[JValue]) -> R {
     let _ = vm.invoke_virtual_args(
         args[3],
@@ -194,7 +203,7 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/Deferred;", "await", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, deferred_await),
     ne!("Lkotlinx/coroutines/AwaitKt;", "awaitAll", "(Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, deferred_await_all),
     ne!("Lkotlinx/coroutines/sync/MutexKt;", "Mutex$default", "(ZILjava/lang/Object;)Lkotlinx/coroutines/sync/Mutex;", false, mutex_default),
-    ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, mutex_lock),
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "()V", true, mutex_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "tryLock", "()Z", true, mutex_try_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "unlock", "()V", true, mutex_unlock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "()Z", true, mutex_is_locked),

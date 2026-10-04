@@ -68,6 +68,26 @@ impl JValue {
         }
     }
 
+    /// Returns `Some(u32)` for object references, `None` for null references
+    /// (both `Null` and `Int(0)`) and primitives.
+    pub fn as_obj_opt(&self) -> Option<u32> {
+        match self {
+            JValue::Obj(o) => Some(*o),
+            JValue::Null | JValue::Int(0) => None,
+            _ => None,
+        }
+    }
+
+    /// Normalize to proper object reference: `Int(0)` -> `Null`, `Obj`/`Null` unchanged.
+    /// Panics on primitives.
+    pub fn to_obj_ref(&self) -> JValue {
+        match self {
+            JValue::Int(0) => JValue::Null,
+            JValue::Obj(_) | JValue::Null => *self,
+            _ => panic!("expected object reference, got {self:?}"),
+        }
+    }
+
     pub fn ty_tag(&self) -> &'static str {
         match self {
             JValue::Int(_) => "int",

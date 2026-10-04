@@ -1455,6 +1455,70 @@ fn serializer_opaque_init(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(JValue::Null)
 }
 
+/// Static `getInstance()` for serializer singleton classes.
+fn serializer_get_instance(vm: &mut Vm, _args: &[JValue]) -> R {
+    // Return a singleton instance of the appropriate serializer marker
+    alloc(
+        vm,
+        "Lkotlinx/serialization/KSerializer;",
+        Native::JsonElementSerializer,
+    )
+}
+
+/// `JsonElementSerializer.INSTANCE`
+pub(crate) fn lazy_json_element_serializer_instance(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/KSerializer;",
+        Native::JsonElementSerializer,
+    ).expect("alloc JsonElementSerializer")
+}
+
+/// `JsonArraySerializer.INSTANCE`
+pub(crate) fn lazy_json_array_serializer_instance(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/KSerializer;",
+        Native::JsonArraySerializer,
+    ).expect("alloc JsonArraySerializer")
+}
+
+/// `JsonPrimitiveSerializer.INSTANCE`
+pub(crate) fn lazy_json_primitive_serializer_instance(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/KSerializer;",
+        Native::JsonPrimitiveSerializer,
+    ).expect("alloc JsonPrimitiveSerializer")
+}
+
+/// `JsonObjectSerializer.INSTANCE`
+pub(crate) fn lazy_json_object_serializer_instance(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/KSerializer;",
+        Native::JsonObjectSerializer,
+    ).expect("alloc JsonObjectSerializer")
+}
+
+/// `JsonNullSerializer.INSTANCE`
+pub(crate) fn lazy_json_null_serializer_instance(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/KSerializer;",
+        Native::JsonNullSerializer,
+    ).expect("alloc JsonNullSerializer")
+}
+
+/// `Json$Default.INSTANCE`
+pub(crate) fn lazy_json_default_instance(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/json/Json;",
+        Native::Opaque,
+    ).expect("alloc Json$Default")
+}
+
 /// `JsonObject$Companion.serializer()` / `JsonArray$Companion.serializer()`
 /// — the JsonElement serializer marker (decode/encode return the tree node).
 fn json_element_serializer_marker(vm: &mut Vm, _args: &[JValue]) -> R {
@@ -2913,7 +2977,55 @@ pub(crate) const SERIALIZATION_TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/serialization/builtins/BuiltinSerializersKt;", "MapSerializer", "(Lkotlinx/serialization/KSerializer;Lkotlinx/serialization/KSerializer;)Lkotlinx/serialization/KSerializer;", false, map_serializer),
     ne!("Lkotlinx/serialization/builtins/BuiltinSerializersKt;", "serializer", "(Lkotlin/jvm/internal/StringCompanionObject;)Lkotlinx/serialization/KSerializer;", false, string_serializer_of),
     ne!("Lkotlinx/serialization/internal/PluginGeneratedSerialDescriptor;", "pushClassAnnotation", "(Ljava/lang/annotation/Annotation;)V", true, descriptor_push_annotation),
+    // Missing kotlinx.serialization serializer classes
+    ne!("Lkotlinx/serialization/json/JsonElementSerializer;", "<init>", "()V", true, serializer_opaque_init),
+    ne!("Lkotlinx/serialization/json/JsonElementSerializer;", "getInstance", "()Lkotlinx/serialization/json/JsonElementSerializer;", true, serializer_get_instance),
+    ne!("Lkotlinx/serialization/json/JsonArraySerializer;", "<init>", "()V", true, serializer_opaque_init),
+    ne!("Lkotlinx/serialization/json/JsonArraySerializer;", "getInstance", "()Lkotlinx/serialization/json/JsonArraySerializer;", true, serializer_get_instance),
+    ne!("Lkotlinx/serialization/json/JsonPrimitiveSerializer;", "<init>", "()V", true, serializer_opaque_init),
+    ne!("Lkotlinx/serialization/json/JsonPrimitiveSerializer;", "getInstance", "()Lkotlinx/serialization/json/JsonPrimitiveSerializer;", true, serializer_get_instance),
+    ne!("Lkotlinx/serialization/json/JsonObjectSerializer;", "<init>", "()V", true, serializer_opaque_init),
+    ne!("Lkotlinx/serialization/json/JsonObjectSerializer;", "getInstance", "()Lkotlinx/serialization/json/JsonObjectSerializer;", true, serializer_get_instance),
+    ne!("Lkotlinx/serialization/json/JsonNullSerializer;", "<init>", "()V", true, serializer_opaque_init),
+    ne!("Lkotlinx/serialization/json/JsonNullSerializer;", "getInstance", "()Lkotlinx/serialization/json/JsonNullSerializer;", true, serializer_get_instance),
+    // Json$Default static field
+    ne!("Lkotlinx/serialization/json/Json$Default;", "serialize", "(Lkotlinx/serialization/SerializationStrategy;Ljava/lang/Object;)Lkotlinx/serialization/json/JsonElement;", true, json_default_serialize),
+    ne!("Lkotlinx/serialization/json/Json$Default;", "deserialize", "(Lkotlinx/serialization/DeserializationStrategy;Lkotlinx/serialization/json/JsonElement;)Ljava/lang/Object;", true, json_default_deserialize),
+    ne!("Lkotlinx/serialization/json/Json$Default;", "getInstance", "()Lkotlinx/serialization/json/Json$Default;", true, json_default_get_instance),
 ];
+
+/// `Json$Default.serialize(strategy, obj)` — delegates to Json.encodeToJsonElement.
+pub(crate) fn json_default_serialize(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 3 {
+        return Err(iae(vm, "Json$Default.serialize requires strategy and obj"));
+    }
+    let _strategy = args[1]; // SerializationStrategy
+    let obj = args[2];
+    // Delegate to Json.encodeToJsonElement
+    let result = json_encode_to_json_element(vm, &[args[0], args[1], obj])?;
+    Ok(result)
+}
+
+/// `Json$Default.deserialize(strategy, element)` — delegates to Json.decodeFromJsonElement.
+pub(crate) fn json_default_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
+    if args.len() < 3 {
+        return Err(iae(vm, "Json$Default.deserialize requires strategy and element"));
+    }
+    let _strategy = args[1]; // DeserializationStrategy
+    let element = args[2];
+    // Delegate to Json.decodeFromJsonElement
+    let result = json_decode_from_json_element(vm, &[args[0], args[1], element])?;
+    Ok(result)
+}
+
+/// `Json$Default.getInstance()` — returns the singleton Json instance.
+pub(crate) fn json_default_get_instance(vm: &mut Vm, _args: &[JValue]) -> R {
+    alloc(
+        vm,
+        "Lkotlinx/serialization/json/Json;",
+        Native::Opaque,
+    )
+}
 
 /// `UnknownFieldException.<init>(index)` — allocated but never thrown in the
 /// sequential decode path.

@@ -765,6 +765,14 @@ pub enum Native {
     },
     /// kotlinx.serialization JsonElement serializer marker.
     JsonElementSerializer,
+    /// kotlinx.serialization JsonArray serializer marker.
+    JsonArraySerializer,
+    /// kotlinx.serialization JsonPrimitive serializer marker.
+    JsonPrimitiveSerializer,
+    /// kotlinx.serialization JsonObject serializer marker.
+    JsonObjectSerializer,
+    /// kotlinx.serialization JsonNull serializer marker.
+    JsonNullSerializer,
     /// kotlinx.serialization EnumSerializer (constants in order + serial
     /// names).
     EnumSerializer {
@@ -1039,6 +1047,10 @@ impl Native {
             | Native::JsonEncoder { .. }
             | Native::SerialDescriptor { .. }
             | Native::JsonElementSerializer
+            | Native::JsonArraySerializer
+            | Native::JsonPrimitiveSerializer
+            | Native::JsonObjectSerializer
+            | Native::JsonNullSerializer
             | Native::PrimitiveSerializer(_) => {}
             Native::JsonDecoder {
                 element, members, ..
