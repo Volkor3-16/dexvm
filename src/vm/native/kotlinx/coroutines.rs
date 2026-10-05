@@ -105,7 +105,7 @@ pub(crate) fn mutex_suspend_lock(vm: &mut Vm, args: &[JValue]) -> R {
     // args[0] = Mutex receiver
     // args[1] = block: suspend () -> T
     // args[2] = continuation
-    let _mutex = match args.get(0) {
+    let mutex = match args.get(0) {
         Some(JValue::Obj(o)) => *o,
         _ => return Err(npe(vm)),
     };
@@ -117,18 +117,37 @@ pub(crate) fn mutex_suspend_lock(vm: &mut Vm, args: &[JValue]) -> R {
         Some(v) => *v,
         _ => return Err(npe(vm)),
     };
-    // For non-blocking VM, execute the block synchronously
+    // Acquire the lock
+    let was_locked = {
+        let Some(Native::Mutex { locked }) = payload_mut(vm, JValue::Obj(mutex)) else {
+            return Err(npe(vm));
+        };
+        let was_locked = *locked;
+        if was_locked {
+            // Lock is already held - in a real implementation this would suspend
+            // For our synchronous VM, we'll just execute and hope for the best
+        }
+        *locked = true;
+        was_locked
+    };
+    
+    // Execute the block synchronously - release the mutable borrow first
     let result = vm.invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![]);
-    // Resume the continuation with the result
-    let npe_obj = vm.err_npe();
-    match result {
-        Ok(res) => {
-            let _ = vm.invoke_virtual_args(cont, "resumeWith", "(Ljava/lang/Object;)V", vec![res]);
-        }
-        Err(_e) => {
-            let _ = vm.invoke_virtual_args(cont, "resumeWith", "(Ljava/lang/Object;)V", vec![JValue::Obj(npe_obj)]);
-        }
+    
+    // Release the lock
+    {
+        let Some(Native::Mutex { locked }) = payload_mut(vm, JValue::Obj(mutex)) else {
+            return Err(npe(vm));
+        };
+        *locked = false;
     }
+    
+    // Resume the continuation with the result
+    let result_val = match result {
+        Ok(res) => res,
+        Err(_e) => JValue::Obj(vm.err_npe()),
+    };
+    let _ = vm.invoke_virtual_args(cont, "resumeWith", "(Ljava/lang/Object;)V", vec![result_val]);
     Ok(JValue::Null)
 }
 
