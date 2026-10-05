@@ -474,7 +474,10 @@ fn setup_http(ext: &mut Keiyoushi, mode: HttpMode) {
                 let url = req.url.to_lowercase();
                 // Extract path only (before ?) for endpoint detection
                 let path = url.split('?').next().unwrap_or(&url);
-                let body = if url.contains("graphql") || url.contains("graphql") {
+                // Check for GraphQL via Accept header or URL
+                let is_graphql = url.contains("graphql")
+                    || req.headers.iter().any(|(k, v)| k.to_lowercase() == "accept" && v.contains("graphql"));
+                let body = if is_graphql {
                     // GraphQL API - return empty but valid responses for common queries
                     if url.contains("popular") {
                         r#"{"data":{"popularManga":{"mangas":[],"hasNext":false}}}"#.to_string()

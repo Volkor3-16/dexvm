@@ -91,7 +91,12 @@ pub(crate) fn lazy_update_strategy_once(vm: &mut Vm) -> JValue {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn keiyoushi_execute(vm: &mut Vm, args: &[JValue]) -> R {
-    let (url, method, headers, body) = request_parts(vm, args[0])?;
+    // Handle case where extension passes Response instead of Request
+    let request_obj = match payload(vm, args[0]) {
+        Some(Native::Response { request, .. }) => *request,
+        _ => args[0],
+    };
+    let (url, method, headers, body) = request_parts(vm, request_obj)?;
     check_network_url(vm, &url)?;
     if std::env::var("DEXVM_TRACE").is_ok() {
         eprintln!("DEXVM_TRACE http-req {method} {url}");
@@ -130,7 +135,7 @@ pub(crate) fn keiyoushi_execute(vm: &mut Vm, args: &[JValue]) -> R {
             message: resp.message,
             headers: resp.headers,
             body: resp.body,
-            request: args[0],
+            request: request_obj,
             prior: JValue::Null,
         },
     )
@@ -675,12 +680,13 @@ pub(crate) fn http_source_page_list_request(vm: &mut Vm, args: &[JValue]) -> R {
 
 /// Parse response body into SMangasPage for popular/search results.
 pub(crate) fn http_source_popular_manga_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    parse_mangas_page_response(vm, args[0])
+    // args[0] = receiver (HttpSource), args[1] = Response
+    parse_mangas_page_response(vm, args[1])
 }
 
 /// Parse response body into SMangasPage for search results.
 pub(crate) fn http_source_search_manga_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    parse_mangas_page_response(vm, args[0])
+    parse_mangas_page_response(vm, args[1])
 }
 
 /// Common parser for MangasPage responses (popular, search, latest).
@@ -814,12 +820,13 @@ struct Manga {
 
 /// Parse response body into List<SChapter> for chapter list.
 pub(crate) fn http_source_chapter_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    http_source_fetch_chapters(vm, &[args[0]])
+    // args[0] = receiver, args[1] = Response
+    http_source_fetch_chapters(vm, &[args[1]])
 }
 
 /// Parse response body into SManga for manga details.
 pub(crate) fn http_source_manga_details_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    http_source_fetch_details(vm, &[args[0]])
+    http_source_fetch_details(vm, &[args[1]])
 }
 
 /// Host default for `imageRequest`: `GET page.imageUrl`.

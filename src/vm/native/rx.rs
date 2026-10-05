@@ -263,6 +263,23 @@ fn observable_identity(_vm: &mut Vm, args: &[JValue]) -> R {
     Ok(args[0])
 }
 
+fn observable_single(vm: &mut Vm, args: &[JValue]) -> R {
+    // Observable.single() - returns a Single that emits the single item from the Observable
+    let (values, error) = rx_materialize(vm, args[0])?;
+    if let Some(err) = rx_terminal_err(error) {
+        return Err(err);
+    }
+    match values.len() {
+        0 => Err(no_such_elem(vm)),
+        1 => rx_alloc(
+            vm,
+            "Lrx/Single;",
+            (Vec::new(), JValue::Null, values[0], Vec::new()),
+        ),
+        _ => Err(iae(vm, "Observable has multiple elements")),
+    }
+}
+
 fn observable_to_blocking(vm: &mut Vm, args: &[JValue]) -> R {
     let payload = rx_payload(vm, args[0])?;
     rx_alloc(vm, "Lrx/observables/BlockingObservable;", payload)
@@ -566,6 +583,13 @@ pub(crate) const RX_TABLE: &[NativeEntry] = &[
         "()Lrx/observables/BlockingObservable;",
         true,
         observable_to_blocking
+    ),
+    ne!(
+        "Lrx/Observable;",
+        "single",
+        "()Lrx/Single;",
+        true,
+        observable_single
     ),
     ne!(
         "Lrx/Observable;",
