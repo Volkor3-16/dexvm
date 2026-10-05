@@ -114,6 +114,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 chrono = { version = "0.4", features = ["serde"] }
 ureq = { version = "3.4", features = ["cookies"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 rquickjs = { version = "0.12.2", optional = true }
 zune-png = { version = "0.5.2", default-features = false, optional = true }
 zune-jpeg = { version = "0.5.15", default-features = false, optional = true }

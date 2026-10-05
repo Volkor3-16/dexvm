@@ -1250,7 +1250,23 @@ impl Vm {
                         }
                         return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
                     }
-                    Some(r.as_obj())
+                    // Handle invalid object references (e.g., Int(n) where n != 0)
+                    let receiver_obj = match r {
+                        JValue::Obj(o) => o,
+                        _ => {
+                            if std::env::var("DEXVM_TRACE").is_ok() {
+                                eprintln!(
+                                    "DEXVM_TRACE invalid-recv {}.{} on {} reg0={:?}",
+                                    self.class_desc_str(f.class),
+                                    self.str_of(mref.name),
+                                    self.class_desc_str(f.class),
+                                    r
+                                );
+                            }
+                            return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
+                        }
+                    };
+                    Some(receiver_obj)
                 };
                 let target = self.resolve_target(*kind, &mref, receiver, f.class)?;
                 let tcls = match &target {
