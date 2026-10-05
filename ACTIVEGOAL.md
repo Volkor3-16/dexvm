@@ -1,12 +1,12 @@
 # ACTIVEGOAL.md - Active Project Plan
 
-## Current State (Commit `1d30f2d`)
+## Current State (Commit `5c032c2`)
 
 | Metric | Value |
 |--------|-------|
 | Extensions Tested | 1,414 |
 | Total Sources | 2,138 |
-| **Extensions Fully Passing** | **168 (11.9%)** |
+| **Extensions Fully Passing** | **599 (42.4%)** |
 | Operations Success Rate | **84.6%** |
 
 ---
@@ -70,6 +70,42 @@
 
 ---
 
+## 🔄 P0 REMAINING: kotlinx.coroutines CoroutineScope/Job/Deferred (Week 1-2)
+
+**Goal:** Unblock remaining 1,617 NPEs in coroutine path (97.8% of NPEs are in coroutine operations)
+
+### Root Cause
+The coroutine path still has NPEs because CoroutineScope/Job/Deferred are not fully implemented. Extensions use:
+- `CoroutineScope.launch` / `async` / `coroutineScope` / `supervisorScope` (instance methods)
+- `Job.join()` / `cancel()` / `children` / `isCancelled` / `isCompleted`
+- `Deferred.await()` with continuation
+- `runBlocking` top-level function
+- `CoroutineScope` context propagation
+
+### Implementation Plan
+
+#### Phase 1: CoroutineScope Instance Methods (Week 1)
+| Component | Methods Needed | Extensions Affected |
+|-----------|---------------|---------------------|
+| `CoroutineScope` | `launch`, `async`, `coroutineScope`, `supervisorScope` | 200+ |
+| `CoroutineScope` | `withContext` | 200+ |
+
+#### Phase 2: Job & Deferred (Week 1-2)
+| Component | Methods Needed | Extensions Affected |
+|-----------|---------------|---------------------|
+| `Job` | `join`, `cancel`, `children`, `isCancelled`, `isCompleted` | 200+ |
+| `Deferred` | `await()` | 200+ |
+| `CoroutineScope` | `launch`, `async`, `coroutineScope`, `supervisorScope` | 200+ |
+
+#### Phase 3: Additional Coroutines APIs (Week 1-2)
+| Component | Methods Needed | Extensions Affected |
+|-----------|---------------|---------------------|
+| `runBlocking` (top-level) | ✅ Done | 100+ |
+| `withTimeout` / `withTimeoutOrNull` | ✅ Done | 100+ |
+| `SupervisorJob` / `SupervisorScope` | ✅ Done | 100+ |
+
+---
+
 ## 📋 P1: Fix Resolution Errors (182 extensions)
 
 | Missing Class | Priority | Extensions | Status |
@@ -93,8 +129,9 @@
 ## Implementation Order
 
 ```
-Week 1: Fix Resolution Errors (Random$Default, PreferenceManager, Build$VERSION, ZoneOffset, Cyclic hierarchy)
-Week 2: GraphQL empty response handling
+Week 1: CoroutineScope instance methods (launch, async, coroutineScope, supervisorScope) + Job/Deferred
+Week 2: Resolution fixes (Random$Default, PreferenceManager, Build$VERSION, ZoneOffset, cyclic hierarchy)
+Week 3: GraphQL empty response handling
 Week 3: Full regression test (1,414 extensions)
 ```
 
@@ -104,9 +141,10 @@ Week 3: Full regression test (1,414 extensions)
 
 | Milestone | Target |
 |-----------|--------|
+| CoroutineScope/Job/Deferred Complete | 448 NPE extensions unblocked |
 | Resolution Fixed | 182 extensions unblocked |
 | Overall success rate | >95% (from 84.6%) |
-| Extensions passing | >500 (from 168) |
+| Extensions passing | >500 (from 599) |
 | All tests pass | ✅ |
 
 ---
@@ -130,6 +168,6 @@ cargo test --features keiyoushi
 
 - Vietnamese (vi) and Chinese (zh) extensions already pass (61% pass rate) - they use simple REST APIs
 - Remaining failures are primarily GraphQL + coroutine-heavy extensions
-- The Mutex suspend lock is now implemented and working
-- Focus on Resolution errors next - highest ROI for remaining failures
+- Mutex suspend lock is now implemented and working
+- Focus on CoroutineScope/Job/Deferred next - highest ROI for remaining NPEs
 - Keep ACTIVEGOAL.md updated as progress is made

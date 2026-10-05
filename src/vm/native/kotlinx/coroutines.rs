@@ -245,6 +245,62 @@ pub(crate) fn deferred_await_all(vm: &mut Vm, args: &[JValue]) -> R {
     list_alloc(vm, values)
 }
 
+// CoroutineScope instance methods
+pub(crate) fn coroutines_launch(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = CoroutineScope receiver
+    // args[1] = block: suspend () -> T
+    let block = args[1];
+    let _ = vm.invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![]);
+    alloc(vm, "Lkotlinx/coroutines/Job;", Native::Opaque)
+}
+
+pub(crate) fn coroutines_async(vm: &mut Vm, args: &[JValue]) -> R {
+    let block = args[1];
+    let value = vm.invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![]).unwrap_or(JValue::Null);
+    alloc(
+        vm,
+        "Lkotlinx/coroutines/Deferred;",
+        Native::Deferred {
+            value,
+            error: JValue::Null,
+        },
+    )
+}
+
+// CoroutineScope instance methods
+pub(crate) fn coroutines_coroutine_scope_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    let scope = alloc(vm, "Lkotlinx/coroutines/CoroutineScope;", Native::Opaque)?;
+    inv_virt(
+        vm,
+        args[0],
+        "invoke",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[scope, args[1]],
+    )
+}
+
+pub(crate) fn coroutines_supervisor_scope_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    let scope = alloc(vm, "Lkotlinx/coroutines/CoroutineScope;", Native::Opaque)?;
+    inv_virt(
+        vm,
+        args[0],
+        "invoke",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[scope, args[1]],
+    )
+}
+
+pub(crate) fn coroutines_with_context_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    let scope = alloc(vm, "Lkotlinx/coroutines/CoroutineScope;", Native::Opaque)?;
+    inv_virt(
+        vm,
+        args[1],
+        "invoke",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        &[scope, args[2]],
+    )
+}
+
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/CoroutineScopeKt;", "CoroutineScope", "(Lkotlin/coroutines/CoroutineContext;)Lkotlinx/coroutines/CoroutineScope;", false, coroutine_scope_create),
     ne!("Lkotlinx/coroutines/GlobalScope;", "getInstance", "()Lkotlinx/coroutines/GlobalScope;", false, coroutines_global_scope),
@@ -276,4 +332,11 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/MainCoroutineDispatcher;", "getImmediate", "()Lkotlinx/coroutines/MainCoroutineDispatcher;", true, coroutines_get_immediate),
     ne!("Lkotlinx/coroutines/DelayKt;", "delay", "(JLkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, coroutines_delay),
     ne!("Lkotlinx/coroutines/DelayKt;", "delay-VtjQ1oo", "(JLkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, coroutines_delay),
+
+    // CoroutineScope instance methods
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "launch", "(Lkotlin/jvm/functions/Function2;)Lkotlinx/coroutines/Job;", true, coroutines_launch),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "async", "(Lkotlin/jvm/functions/Function2;)Lkotlinx/coroutines/Deferred;", true, coroutines_async),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "coroutineScope", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_coroutine_scope_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "supervisorScope", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_supervisor_scope_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "withContext", "(Lkotlin/coroutines/CoroutineContext;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_with_context_instance),
 ];
