@@ -245,6 +245,15 @@ pub(crate) fn deferred_await_all(vm: &mut Vm, args: &[JValue]) -> R {
     list_alloc(vm, values)
 }
 
+// Deferred instance method - await (instance method on Deferred)
+pub(crate) fn coroutines_deferred_await_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Deferred receiver
+    match payload(vm, args[0]) {
+        Some(Native::Deferred { value, .. }) => Ok(*value),
+        _ => Err(npe(vm)),
+    }
+}
+
 // CoroutineScope instance methods
 pub(crate) fn coroutines_launch(vm: &mut Vm, args: &[JValue]) -> R {
     // args[0] = CoroutineScope receiver
@@ -301,6 +310,66 @@ pub(crate) fn coroutines_with_context_instance(vm: &mut Vm, args: &[JValue]) -> 
     )
 }
 
+
+
+// Job instance methods
+pub(crate) fn coroutines_job_join(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    // For our synchronous VM, job is already complete
+    Ok(JValue::Null)
+}
+
+pub(crate) fn coroutines_job_is_cancelled(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    Ok(JValue::Int(0))
+}
+
+pub(crate) fn coroutines_job_is_completed(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    Ok(JValue::Int(1))
+}
+
+pub(crate) fn coroutines_job_cancel(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    Ok(JValue::Null)
+}
+
+pub(crate) fn coroutines_job_children(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    list_alloc(vm, vec![])
+}
+
+// Deferred instance methods
+pub(crate) fn coroutines_deferred_await(vm: &mut Vm, args: &[JValue]) -> R {
+    match payload(vm, args[0]) {
+        Some(Native::Deferred { value, .. }) => Ok(*value),
+        _ => Err(npe(vm)),
+    }
+}
+
+// Job instance methods on CoroutineScope
+pub(crate) fn coroutines_job_join_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    Ok(JValue::Null)
+}
+
+pub(crate) fn coroutines_job_is_cancelled_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    Ok(JValue::Int(0))
+}
+
+pub(crate) fn coroutines_job_is_completed_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    Ok(JValue::Int(1))
+}
+
+pub(crate) fn coroutines_job_cancel_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    Ok(JValue::Null)
+}
+
+pub(crate) fn coroutines_job_children_instance(vm: &mut Vm, args: &[JValue]) -> R {
+    list_alloc(vm, vec![])
+}
+
+
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/CoroutineScopeKt;", "CoroutineScope", "(Lkotlin/coroutines/CoroutineContext;)Lkotlinx/coroutines/CoroutineScope;", false, coroutine_scope_create),
     ne!("Lkotlinx/coroutines/GlobalScope;", "getInstance", "()Lkotlinx/coroutines/GlobalScope;", false, coroutines_global_scope),
@@ -339,4 +408,32 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/CoroutineScope;", "coroutineScope", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_coroutine_scope_instance),
     ne!("Lkotlinx/coroutines/CoroutineScope;", "supervisorScope", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_supervisor_scope_instance),
     ne!("Lkotlinx/coroutines/CoroutineScope;", "withContext", "(Lkotlin/coroutines/CoroutineContext;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_with_context_instance),
+
+    // Job instance methods
+    ne!("Lkotlinx/coroutines/Job;", "join", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_job_join),
+    ne!("Lkotlinx/coroutines/Job;", "cancel", "()V", true, coroutines_job_cancel),
+    ne!("Lkotlinx/coroutines/Job;", "children", "()Ljava/util/List;", true, coroutines_job_children),
+    ne!("Lkotlinx/coroutines/Job;", "isCancelled", "()Z", true, coroutines_job_is_cancelled),
+    ne!("Lkotlinx/coroutines/Job;", "isCompleted", "()Z", true, coroutines_job_is_completed),
+
+    // Job instance methods on CoroutineScope
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobJoin", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_job_join_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobIsCancelled", "()Z", true, coroutines_job_is_cancelled_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobIsCompleted", "()Z", true, coroutines_job_is_completed_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobCancel", "()V", true, coroutines_job_cancel_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobChildren", "()Ljava/util/List;", true, coroutines_job_children_instance),
+
+    // Deferred instance methods
+    ne!("Lkotlinx/coroutines/Deferred;", "await", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_deferred_await),
+    ne!("Lkotlinx/coroutines/Deferred;", "await", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_deferred_await_instance),
+
+    // Job instance methods on CoroutineScope
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobJoin", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_job_join_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobIsCancelled", "()Z", true, coroutines_job_is_cancelled_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobIsCompleted", "()Z", true, coroutines_job_is_completed_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobCancel", "()V", true, coroutines_job_cancel_instance),
+    ne!("Lkotlinx/coroutines/CoroutineScope;", "jobChildren", "()Ljava/util/List;", true, coroutines_job_children_instance),
+
+    // Deferred instance methods
+    ne!("Lkotlinx/coroutines/Deferred;", "await", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_deferred_await_instance),
 ];
