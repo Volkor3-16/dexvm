@@ -702,11 +702,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         Some("Ljava/lang/Object;"),
         &[],
         0,
-        [sdef!(
-            "Companion",
-            "Lokhttp3/ResponseBody$Companion;",
-            ShimValue::Lazy(native::lazy_response_body_companion)
-        ),]
+        []
     ),
     #[cfg(feature = "okhttp")]
     shim!(

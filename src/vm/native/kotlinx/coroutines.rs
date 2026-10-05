@@ -99,6 +99,45 @@ pub(crate) fn mutex_is_locked(vm: &mut Vm, args: &[JValue]) -> R {
     }
 }
 
+/// Suspend lock function for Mutex interface: `lock(block: suspend () -> T): T`
+/// This is called as an extension function on Mutex with a continuation.
+pub(crate) fn mutex_suspend_lock(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Mutex receiver
+    // args[1] = block: suspend () -> T
+    // args[2] = continuation
+    let _mutex = match args.get(0) {
+        Some(JValue::Obj(o)) => *o,
+        _ => return Err(npe(vm)),
+    };
+    let block = match args.get(1) {
+        Some(v) => *v,
+        _ => return Err(npe(vm)),
+    };
+    let cont = match args.get(2) {
+        Some(v) => *v,
+        _ => return Err(npe(vm)),
+    };
+    // For non-blocking VM, execute the block synchronously
+    let result = vm.invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![]);
+    // Resume the continuation with the result
+    let npe_obj = vm.err_npe();
+    match result {
+        Ok(res) => {
+            let _ = vm.invoke_virtual_args(cont, "resumeWith", "(Ljava/lang/Object;)V", vec![res]);
+        }
+        Err(_e) => {
+            let _ = vm.invoke_virtual_args(cont, "resumeWith", "(Ljava/lang/Object;)V", vec![JValue::Obj(npe_obj)]);
+        }
+    }
+    Ok(JValue::Null)
+}
+
+/// Static extension function MutexKt.lock
+pub(crate) fn mutex_kt_lock(vm: &mut Vm, args: &[JValue]) -> R {
+    // Same as mutex_suspend_lock but as a static function
+    mutex_suspend_lock(vm, args)
+}
+
 pub(crate) fn coroutines_launch_default(vm: &mut Vm, args: &[JValue]) -> R {
     let _ = vm.invoke_virtual_args(
         args[3],
@@ -204,9 +243,11 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/AwaitKt;", "awaitAll", "(Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, deferred_await_all),
     ne!("Lkotlinx/coroutines/sync/MutexKt;", "Mutex$default", "(ZILjava/lang/Object;)Lkotlinx/coroutines/sync/Mutex;", false, mutex_default),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "()V", true, mutex_lock),
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, mutex_suspend_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "tryLock", "()Z", true, mutex_try_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "unlock", "()V", true, mutex_unlock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "()Z", true, mutex_is_locked),
+    ne!("Lkotlinx/coroutines/sync/MutexKt;", "lock", "(Lkotlinx/coroutines/sync/Mutex;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, mutex_kt_lock),
     ne!("Lkotlinx/coroutines/SupervisorKt;", "SupervisorJob$default", "(Lkotlinx/coroutines/Job;ILjava/lang/Object;)Lkotlinx/coroutines/CompletableJob;", false, coroutines_supervisor_job_default),
     ne!("Lkotlinx/coroutines/SupervisorKt;", "supervisorScope", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, coroutines_supervisor_scope),
     ne!("Lkotlinx/coroutines/Job;", "cancel$default", "(Lkotlinx/coroutines/Job;Ljava/util/concurrent/CancellationException;ILjava/lang/Object;)V", false, coroutines_job_cancel_default),

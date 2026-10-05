@@ -466,26 +466,41 @@ fn setup_http(ext: &mut Keiyoushi, mode: HttpMode) {
         }
         HttpMode::Empty => {
             // Return minimal valid JSON responses that satisfy common API expectations:
-            // - GraphQL: {"data":{}}
+            // - GraphQL: {"data":{"popularManga":{"mangas":[],"hasNext":false},...}}
             // - REST MangasPage: {"mangas":[],"hasNext":false}
             // - REST Chapter/Page lists: []
             // This avoids JSON parsing errors and "missing data field" errors.
             ext.set_http(|req: &HttpData| {
                 let url = req.url.to_lowercase();
+                // Extract path only (before ?) for endpoint detection
+                let path = url.split('?').next().unwrap_or(&url);
                 let body = if url.contains("graphql") || url.contains("graphql") {
-                    // GraphQL API - return minimal valid response with data field
-                    r#"{"data":{}}"#.to_string()
-                } else if url.contains("popular") || url.contains("search") || url.contains("latest") || url.contains("update") || url.contains("list") {
+                    // GraphQL API - return empty but valid responses for common queries
+                    if url.contains("popular") {
+                        r#"{"data":{"popularManga":{"mangas":[],"hasNext":false}}}"#.to_string()
+                    } else if url.contains("search") {
+                        r#"{"data":{"searchManga":{"mangas":[],"hasNext":false}}}"#.to_string()
+                    } else if url.contains("latest") || url.contains("update") {
+                        r#"{"data":{"latestUpdates":{"mangas":[],"hasNext":false}}}"#.to_string()
+                    } else if url.contains("chapter") || url.contains("page") {
+                        r#"{"data":{"chapterList":[]}}"#.to_string()
+                    } else if url.contains("detail") || url.contains("info") || url.contains("manga") {
+                        r#"{"data":{"manga":{"title":"","url":"","description":"","author":"","artist":"","genre":"","status":0,"thumbnailUrl":"","coverUrl":""}}}"#.to_string()
+                    } else {
+                        // Generic empty GraphQL response
+                        r#"{"data":{}}"#.to_string()
+                    }
+                } else if path.contains("popular") || path.contains("search") || path.contains("latest") || path.contains("update") || path.contains("list") {
                     // Likely a MangasPage or chapter list endpoint
-                    if url.contains("chapter") || url.contains("page") {
+                    if path.contains("chapter") || path.contains("page") {
                         r#"[]"#.to_string()
                     } else {
                         r#"{"mangas":[],"hasNext":false}"#.to_string()
                     }
-                } else if url.contains("detail") || url.contains("info") || url.contains("manga") {
+                } else if path.contains("detail") || path.contains("info") || path.contains("manga") {
                     // Manga details endpoint
                     r#"{"title":"","url":"","description":"","author":"","artist":"","genre":"","status":0,"thumbnailUrl":"","coverUrl":""}"#.to_string()
-                } else if url.contains("chapter") || url.contains("page") {
+                } else if path.contains("chapter") || path.contains("page") {
                     // Chapter or page list
                     r#"[]"#.to_string()
                 } else {
