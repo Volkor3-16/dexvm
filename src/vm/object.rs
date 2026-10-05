@@ -16,6 +16,15 @@ pub enum RxOperator {
     OnErrorReturn(JValue),
     OnErrorResumeNext(JValue),
     DoOnTerminate(JValue),
+    DoOnError(JValue),
+    DoOnSubscribe(JValue),
+    DoOnUnsubscribe(JValue),
+    DoOnEach(JValue),
+    SubscribeOn(JValue),
+    ObserveOn(JValue),
+    Cache,
+    Single,
+    ToBlocking,
 }
 
 #[derive(Debug, Clone)]
@@ -931,14 +940,24 @@ impl Native {
                 push(Some(error), out);
                 push(Some(callable), out);
                 for operator in operators {
-                    match operator {
-                        RxOperator::Map(callback)
-                        | RxOperator::FlatMap(callback)
-                        | RxOperator::DoOnNext(callback)
-                        | RxOperator::OnErrorReturn(callback)
-                        | RxOperator::OnErrorResumeNext(callback)
-                        | RxOperator::DoOnTerminate(callback) => push(Some(callback), out),
-                        RxOperator::ToList => {}
+                    if let Some(callback) = match &operator {
+                        RxOperator::Map(c) => Some(c),
+                        RxOperator::FlatMap(c) => Some(c),
+                        RxOperator::DoOnNext(c) => Some(c),
+                        RxOperator::OnErrorReturn(c) => Some(c),
+                        RxOperator::OnErrorResumeNext(c) => Some(c),
+                        RxOperator::DoOnTerminate(c) => Some(c),
+                        RxOperator::DoOnError(c) => Some(c),
+                        RxOperator::DoOnSubscribe(c) => Some(c),
+                        RxOperator::DoOnUnsubscribe(c) => Some(c),
+                        RxOperator::DoOnEach(c) => Some(c),
+                        RxOperator::SubscribeOn(c) => Some(c),
+                        RxOperator::ObserveOn(c) => Some(c),
+                        _ => None,
+                    } {
+                        push(Some(callback), out);
+                    } else if matches!(&operator, RxOperator::Cache | RxOperator::Single | RxOperator::ToBlocking | RxOperator::ToList) {
+                        // These variants don't have callbacks, just skip
                     }
                 }
             }

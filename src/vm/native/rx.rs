@@ -122,6 +122,52 @@ fn rx_materialize(vm: &mut Vm, value: JValue) -> Result<(Vec<JValue>, JValue), N
                     Err(other) => return Err(other),
                 }
             }
+            RxOperator::DoOnError(callback) => {
+                if !error.is_null() {
+                    match inv_virt(vm, callback, "call", "(Ljava/lang/Object;)V", &[error]) {
+                        Ok(_) => error = JValue::Null,
+                        Err(NatErr::Throw(thrown)) => error = JValue::Obj(thrown),
+                        Err(other) => return Err(other),
+                    }
+                }
+            }
+            RxOperator::DoOnSubscribe(callback) => {
+                match inv_virt(vm, callback, "call", "()V", &[]) {
+                    Ok(_) => {}
+                    Err(NatErr::Throw(thrown)) => error = JValue::Obj(thrown),
+                    Err(other) => return Err(other),
+                }
+            }
+            RxOperator::DoOnUnsubscribe(callback) => {
+                match inv_virt(vm, callback, "call", "()V", &[]) {
+                    Ok(_) => {}
+                    Err(NatErr::Throw(thrown)) => error = JValue::Obj(thrown),
+                    Err(other) => return Err(other),
+                }
+            }
+            RxOperator::DoOnEach(callback) => {
+                for value in &values {
+                    match inv_virt(vm, callback, "call", "(Ljava/lang/Object;)V", &[*value]) {
+                        Ok(_) => {}
+                        Err(NatErr::Throw(thrown)) => {
+                            error = JValue::Obj(thrown);
+                            break;
+                        }
+                        Err(other) => return Err(other),
+                    }
+                }
+            }
+            RxOperator::SubscribeOn(_scheduler) => {
+                // For synchronous VM, just execute immediately
+                // In real RxJava this would switch schedulers
+            }
+            RxOperator::ObserveOn(_scheduler) => {
+                // For synchronous VM, just execute immediately
+                // In real RxJava this would switch schedulers
+            }
+            RxOperator::Cache => {
+                // Cache is a no-op in our synchronous implementation
+            }
             _ => {
                 if !error.is_null() {
                     break;
@@ -191,7 +237,17 @@ fn rx_materialize(vm: &mut Vm, value: JValue) -> Result<(Vec<JValue>, JValue), N
                     }
                     RxOperator::OnErrorReturn(_)
                     | RxOperator::OnErrorResumeNext(_)
-                    | RxOperator::DoOnTerminate(_) => unreachable!("handled above"),
+                    | RxOperator::DoOnTerminate(_)
+                    | RxOperator::DoOnError(_)
+                    | RxOperator::DoOnSubscribe(_)
+                    | RxOperator::DoOnUnsubscribe(_)
+                    | RxOperator::DoOnEach(_)
+                    | RxOperator::SubscribeOn(_)
+                    | RxOperator::ObserveOn(_)
+                    | RxOperator::Cache
+                    | RxOperator::Single
+                    | RxOperator::ToBlocking
+                    | RxOperator::ToList => unreachable!("handled above"),
                 }
             }
         }

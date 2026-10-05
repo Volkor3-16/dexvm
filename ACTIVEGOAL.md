@@ -1,142 +1,125 @@
-# ACTIVEGOAL.md - Project Plan for Next Phase
+# ACTIVEGOAL.md - Active Project Plan
 
-## Current State (Commit `fab0eec`)
+## Current State (Commit `1047ad5`)
 
 | Metric | Value |
 |--------|-------|
-| Total Operations | 25,656 |
-| Failed | 8,030 (31.3%) |
-| **Primary Blocker** | **Response NPE: 5,689 (70.8%)** |
+| Extensions Tested | 1,414 |
+| Total Sources | 2,138 |
+| **Extensions Fully Passing** | **168 (11.9%)** |
+| Operations Success Rate | **84.6%** |
 
 ---
 
-## Root Cause Analysis
+## Current Blockers
 
-The latest commit fixed 4,072 legacy request resolution errors but shifted the failure point to **parse-time NPE** when handling GraphQL responses. The "empty" HTTP handler returns REST format (`{"mangas":[],"hasNext":false}`) but GraphQL-based extensions expect GraphQL format (`{"data":{"popularManga":{"mangas":[],"hasNext":false}}}`).
-
----
-
-## Priority Queue
-
-### 🔴 P0 - Critical (Highest Impact)
-
-| Task | Estimated Effort | Impact | Description |
-|------|------------------|--------|-------------|
-| **Fix Response NPE for GraphQL endpoints** | 2-3 days | **5,689 errors (70.8%)** | VM crashes when allocating `Lokhttp3/Response` for GraphQL responses. The empty handler returns REST format but GraphQL extensions parse expecting GraphQL structure. |
-| **Fix Response allocation** | 1-2 days | **5,689 errors** | `alloc()` for `Lokhttp3/Response` fails during class loading/initialization for GraphQL-based extensions (XCOMIC, MangaDex, MangaMillion, etc.) |
-
-### 🟠 P1 - High Impact
-
-| Task | Estimated Effort | Impact | Description |
-|------|------------------|--------|-------------|
-| **Add `getMangaUpdate` shim** | 1 day | ~50 errors | `MangaUpdate` interface with `getMangaUpdate` suspend function needed by Roxinha, Mangadusleri, MangaPill |
-| **Add `kotlinx.random.Random$Default` shim** | 1 day | ~40 errors | Missing static field `Default` in `kotlin.random.Random$Default` |
-| **Fix cyclic class hierarchy** | 2-3 days | ~45 errors | Some extensions have circular inheritance (e.g., `GenericSource` -> `HttpSource` -> `GenericSource`) |
-
-### 🟡 P2 - Medium Impact
-
-| Task | Estimated Effort | Impact | Description |
-|------|------------------|--------|-------------|
-| **Improve empty response handling for coroutines** | 1 day | ~25 errors | Coroutine parse methods (`popular_coro`, `search_coro`, `latest_coro`) need better empty response defaults |
-| **Fix kotlinx.serialization remaining 2 errors** | < 1 day | 2 errors | Minor edge cases |
+| Blocker | Extensions | % of Failed | Primary Cause |
+|---------|------------|-------------|---------------|
+| **NPE** | **448** | **35.9%** | RxJava/kotlinx.coroutines missing shims (coroutine path) |
+| **Resolution** | 182 | 14.6% | Missing Android/Kotlin classes (PreferenceManager, Build$VERSION, ZoneOffset, kotlinx.random.Random$Default, etc.) |
+| **Other** | 131 | 10.5% | GraphQL parsing, legacy request methods, etc. |
+| **legacy_request** | 47 | 3.8% | Missing legacy HttpSource request methods |
+| **UnsupportedOp** | 7 | 0.6% | UnsupportedOperationException |
 
 ---
 
-## Technical Plan for P0: Fix Response NPE
+## Next Task: P0 - Full RxJava/kotlinx.coroutines Shim
 
-### Problem
+**Goal:** Unblock 448 extensions failing with NPE in coroutine path
+
+### Root Cause
+The coroutine path (`popular_coro`, `search_coro`, `latest_coro`) uses RxJava + kotlinx.coroutines which are not properly shimmed. Extensions use:
+- `RxJava` Observable → `awaitSingle()` / `blockingFirst()` → Single
+- `kotlinx.coroutines` Mutex, suspend functions
+- `kotlinx.coroutines.sync.Mutex.lock` with continuation
+
+### Implementation Plan
+
+#### Phase 1: RxJava Core (Week 1)
+| Component | Methods Needed | Extensions Affected |
+|-----------|---------------|---------------------|
+| `Observable` | `just`, `error`, `fromCallable`, `map`, `flatMap`, `switchMap`, `doOnNext`, `doOnError`, `doOnTerminate`, `subscribeOn`, `observeOn`, `cache`, `toBlocking`, `toList`, `single`, `subscribe`, `blockingFirst`, `blockingSingle` | 448 |
+| `Single` | `just`, `error`, `fromCallable`, `map`, `flatMap`, `subscribe`, `blockingGet` | 448 |
+| `Schedulers` | `io()`, `computation()`, `trampoline()`, `newThread()`, `io()` | 448 |
+| `Subscription` | `unsubscribe`, `isUnsubscribed` | 448 |
+
+#### Phase 2: kotlinx.coroutines (Week 1-2)
+| Component | Methods Needed | Extensions Affected |
+|-----------|---------------|---------------------|
+| `Mutex` | `lock(block: suspend () -> T)`, `tryLock()`, `unlock()`, `isLocked()` | 200+ |
+| `CoroutineScope` | `launch`, `async`, `coroutineScope`, `supervisorScope` | 100+ |
+| `Dispatchers` | `IO`, `Default`, `Main`, `Unconfined` | 100+ |
+| `Job` | `cancel`, `join`, `isCancelled` | 100+ |
+| `Deferred` | `await()` | 100+ |
+
+#### Phase 3: Android/Kotlin Integration (Week 2)
+| Class | Methods | Extensions |
+|-------|---------|------------|
+| `androidx.lifecycle.CoroutineScope` | `coroutineScope` | 50+ |
+| `kotlinx.coroutines.CoroutineScope` | `coroutineScope` | 50+ |
+
+---
+
+## Secondary Tasks (After P0)
+
+### P1: Fix Resolution Errors (182 extensions)
+| Missing Class | Priority | Extensions |
+|--------------|----------|------------|
+| `kotlinx.random.Random$Default` | High | 40 |
+| `androidx.preference.PreferenceManager` | High | 30 |
+| `android.os.Build$VERSION` | Medium | 20 |
+| `java.time.ZoneOffset` | Medium | 15 |
+| Cyclic class hierarchy | High | 45 |
+
+### P2: GraphQL Empty Response Handling
+| Issue | Extensions Affected |
+|-------|---------------------|
+| Empty handler returns REST format instead of GraphQL | ~100 |
+
+---
+
+## Implementation Order
+
 ```
-DEXVM_TRACE alloc: desc=Lokhttp3/Response;
-DEXVM_TRACE load_shim_class: Lokhttp3/Response;
-NPE@native
-NPE@created
+Week 1: RxJava Observable + Single + Schedulers
+Week 1-2: kotlinx.coroutines Mutex + CoroutineScope
+Week 2: Android lifecycle integration
+Week 2: Fix Resolution errors (Random$Default, PreferenceManager, etc.)
+Week 3: GraphQL empty response handling
+Week 3: Full regression test (1,414 extensions)
 ```
-
-The VM crashes when:
-1. Extension makes GraphQL request
-2. Empty handler returns REST format `{"mangas":[],"hasNext":false}`
-3. Extension's GraphQL parser tries to access `data.popularManga.mangas`
-4. Returns null → NPE in parse code
-
-### Solution Options
-
-| Option | Pros | Cons | Effort |
-|--------|------|------|--------|
-| **A. Detect GraphQL in empty handler** | Fixes root cause, proper format | Need to detect GraphQL endpoints | 1 day |
-| **B. Return valid GraphQL for ALL empty responses** | Simple, consistent | Wastes bandwidth for REST-only extensions | 0.5 days |
-| **C. Make parse code handle both REST + GraphQL** | Already partially done | Doesn't fix VM allocation crash | 1 day |
-| **D. Fix Response class loading/shim** | Fixes VM crash at source | Need to understand why `Response` alloc fails | 1-2 days |
-
-### Recommended Approach: **A + D**
-
-1. **Fix Response class loading** (D): Ensure `Lokhttp3/Response` shim loads correctly with all required methods (`code()`, `message()`, `headers()`, `body()`)
-2. **Add GraphQL detection in empty handler** (A): Check `url.contains("graphql")` OR check request `Accept` header for `application/graphql`
-
----
-
-## Execution Sequence
-
-### Week 1: P0 - Response NPE
-- **Day 1-2**: Debug Response allocation crash
-  - Add trace to `load_shim_class` for `Lokhttp3/Response`
-  - Verify shim has all required methods from native table
-  - Check if `ResponseBody` companion removal caused regression
-- **Day 2-3**: Implement GraphQL-aware empty handler
-  - Detect GraphQL via URL path (`/graphql`, `/api/graphql`) or `Accept` header
-  - Return proper GraphQL structure: `{"data":{"popularManga":{"mangas":[],"hasNext":false}}}`
-- **Day 3**: Test against top 5 GraphQL extensions (XCOMIC, MangaDex, MangaMillion, GlobalComix, HentaiHand)
-
-### Week 2: P1 - High Impact
-- **Day 4**: Add `getMangaUpdate` shim for MangaUpdate interface
-- **Day 5**: Add `kotlinx.random.Random$Default` static field shim
-- **Day 5-6**: Fix cyclic class hierarchy (analyze with `cargo run --features keiyoushi --bin dexcli -- --classes`)
-
-### Week 3: P2 - Polish
-- **Day 7**: Improve empty response handling for coroutines
-- **Day 7-8**: Fix remaining kotlinx.serialization edge cases
-- **Day 8**: Full regression test (1,414 extensions)
 
 ---
 
 ## Success Criteria
 
-| Metric | Target |
-|--------|--------|
-| Response NPE errors | < 100 (from 5,689) |
-| Legacy request missing | < 50 (from 150) |
-| Total failed operations | < 2,000 (from 8,030) |
-| Success rate | > 92% (from 68.7%) |
-| GraphQL extensions working | XCOMIC, MangaDex, MangaMillion, GlobalComix, HentaiHand |
+| Milestone | Target |
+|-----------|--------|
+| P0 Complete | 448 NPE extensions unblocked |
+| Overall success rate | >95% (from 84.6%) |
+| Extensions passing | >500 (from 168) |
+| All tests pass | ✅ |
 
 ---
 
-## Test Commands
+## Commands
 
 ```bash
-# Quick test single GraphQL extension
+# Quick test single extension
 DEXVM_LIVE=0 cargo run --features keiyoushi --bin exttest -- --http empty --apk "fixtures/keiyoushi_all/tachiyomi-all.xcomic-v1.6.8.apk"
 
 # Full regression
 cargo run --features keiyoushi --bin exttest -- --http empty --json report.json
 
-# Debug Response loading
-DEXVM_TRACE=1 cargo run --features keiyoushi --bin exttest -- --http empty --apk "fixtures/keiyoushi_all/tachiyomi-all.xcomic-v1.6.8.apk" 2>&1 | grep -E "alloc.*Response|load_shim_class.*Response"
+# Run unit tests
+cargo test --features keiyoushi
 ```
-
----
-
-## Risk Mitigation
-
-| Risk | Mitigation |
-|------|------------|
-| GraphQL detection misses some endpoints | Fallback: return BOTH REST + GraphQL in empty response |
-| Response shim missing methods | Audit native table for `Lokhttp3/Response` methods |
-| Breaking REST-only extensions | Use path-based detection (`/graphql` in URL) not blanket GraphQL |
 
 ---
 
 ## Notes
 
-- The **Response NPE is a VM crash**, not a Java exception - it happens during class loading/allocation, not in user code
-- GraphQL extensions affected: **XCOMIC (109), MangaDex (61), MangaMillion (108), GlobalComix (41), HentaiHand (34), DragonBallMultiverse (36)** = 389 sources
-- Fixing this alone would reduce failures by ~5,600 (70%) and push success rate to >85%
+- Vietnamese (vi) and Chinese (zh) extensions already pass (61% pass rate) - they use simple REST APIs
+- Remaining failures are primarily GraphQL + coroutine-heavy extensions
+- Focus on RxJava/kotlinx.coroutines shim first - highest ROI
+- Keep ACTIVEGOAL.md updated as progress is made
