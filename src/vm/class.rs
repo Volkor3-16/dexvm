@@ -1805,7 +1805,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlinx/coroutines/CoroutineScope;",
         None,
         &[],
-        ACC_INTERFACE | ACC_ABSTRACT
+        ACC_INTERFACE
     ),
     shim!(
         "Lkotlin/coroutines/CoroutineContext;",
@@ -1823,7 +1823,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlinx/coroutines/Job;",
         None,
         &[],
-        ACC_INTERFACE | ACC_ABSTRACT
+        ACC_INTERFACE
     ),
     shim!(
         "Lkotlin/coroutines/jvm/internal/SuspendLambda;",
@@ -3600,70 +3600,83 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         ],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CancellableContinuationImpl;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CompletableDeferred;",
         None,
         &[],
-        ACC_INTERFACE | ACC_ABSTRACT
+        ACC_INTERFACE
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CompletableDeferredKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CompletableJob;",
         None,
         &[],
-        ACC_INTERFACE | ACC_ABSTRACT
+        ACC_INTERFACE
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/DelayKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/coroutines/Deferred;",
+        None,
+        &[],
+        ACC_INTERFACE
+    ),
     shim!(
         "Lkotlinx/coroutines/MainCoroutineDispatcher;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/SupervisorKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/TimeoutKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Lkotlinx/coroutines/Dispatchers;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Lkotlinx/coroutines/Dispatchers;",
+            ShimValue::Lazy(native::lazy_dispatchers_instance)
+        ),]
+    ),
+    shim!(
+        "Lkotlinx/coroutines/CoroutineStart;",
+        None,
+        &[],
+        ACC_INTERFACE
+    ),
     shim!(
         "Lkotlinx/coroutines/sync/Mutex;",
         None,
         &[],
         ACC_INTERFACE
     ),
-    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/sync/MutexKt;",
         Some("Ljava/lang/Object;"),

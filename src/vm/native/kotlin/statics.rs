@@ -29,6 +29,10 @@ pub(crate) fn unit_instance(vm: &mut Vm) -> JValue {
 pub(crate) fn global_scope(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lkotlinx/coroutines/GlobalScope;")
 }
+
+pub(crate) fn lazy_dispatchers_instance(vm: &mut Vm) -> JValue {
+    opaque_inst(vm, "Lkotlinx/coroutines/Dispatchers;")
+}
 pub(crate) fn result_companion(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lkotlin/Result$Companion;")
 }
