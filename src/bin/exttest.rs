@@ -389,7 +389,7 @@ fn test_extension(
     };
 
     // Set up HTTP callback based on mode
-    setup_http(&mut ext, config.http_mode, config.require_fixtures);
+    setup_http(&mut ext, config.http_mode, config.require_fixtures, apk_path);
 
     // Grant permissions
     ext.ctx().grant(permission::Permission::Network(
@@ -425,7 +425,7 @@ fn test_extension(
         let src_result = if config.fresh_vm_per_source {
             // Create fresh VM per source
             let mut new_ext = Keiyoushi::open(apk_path)?;
-            setup_http(&mut new_ext, config.http_mode, config.require_fixtures);
+            setup_http(&mut new_ext, config.http_mode, config.require_fixtures, apk_path);
             new_ext.ctx().grant(permission::Permission::Network(
                 permission::NetworkPermission::Any,
             ));
@@ -464,11 +464,14 @@ fn load_manifest(
     ))
 }
 
-fn setup_http(ext: &mut Keiyoushi, mode: HttpMode, require_fixtures: bool) {
+fn setup_http(ext: &mut Keiyoushi, mode: HttpMode, require_fixtures: bool, apk_path: &str) {
     match mode {
         HttpMode::Replay => {
-            // Support custom fixture directory via DEXVM_LIVE_DIR
-            let live_dir = std::env::var("DEXVM_LIVE_DIR").unwrap_or_else(|_| "fixtures/live".to_string());
+            // Use APK-specific fixture directory: fixtures/live/<apk_stem>/
+            let live_dir = std::env::var("DEXVM_LIVE_DIR").unwrap_or_else(|_| {
+                let stem = Path::new(apk_path).file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                format!("fixtures/live/{stem}")
+            });
             let manifest_path = format!("{live_dir}/manifest.txt");
             if Path::new(&manifest_path).exists() {
                 let text = fs::read_to_string(&manifest_path).unwrap_or_default();
@@ -499,7 +502,9 @@ fn setup_http(ext: &mut Keiyoushi, mode: HttpMode, require_fixtures: bool) {
                     }
                 }));
             } else if require_fixtures {
-                eprintln!("  ✗ {manifest_path} not found (use --require-fixtures to make this an error)");
+                eprintln!(
+                    "  ✗ {manifest_path} not found (use --require-fixtures to make this an error)"
+                );
                 std::process::exit(1);
             } else {
                 // No fixtures, fall back to empty

@@ -1962,6 +1962,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         0
     ),
     shim!(
+        "Lkotlin/jvm/internal/markers/KMappedMarker;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0
+    ),
+    shim!(
         "Lkotlin/coroutines/Continuation;",
         None,
         &[],
