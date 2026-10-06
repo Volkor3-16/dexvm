@@ -190,7 +190,8 @@ fn live_full_pipeline() {
     if !live {
         eprintln!(
             "warn: no manga parsed from the live site (WAF/geo/outage?) — pipeline \
-             still exercised end to end; see {}/*.html", ldir
+             still exercised end to end; see {}/*.html",
+            ldir
         );
     }
 

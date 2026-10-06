@@ -32,7 +32,10 @@ build_const!(lazy_build_bootloader, "");
 build_const!(lazy_build_brand, "generic");
 build_const!(lazy_build_device, "generic");
 build_const!(lazy_build_display, "generic");
-build_const!(lazy_build_fingerprint, "generic/generic/generic:14/UP1A.231005.007/12345678:user/release-keys");
+build_const!(
+    lazy_build_fingerprint,
+    "generic/generic/generic:14/UP1A.231005.007/12345678:user/release-keys"
+);
 build_const!(lazy_build_hardware, "generic");
 build_const!(lazy_build_host, "build-host");
 build_const!(lazy_build_id, "UP1A.231005.007");
@@ -57,7 +60,10 @@ build_const_lazy!(lazy_build_bootloader_lazy, "");
 build_const_lazy!(lazy_build_brand_lazy, "generic");
 build_const_lazy!(lazy_build_device_lazy, "generic");
 build_const_lazy!(lazy_build_display_lazy, "generic");
-build_const_lazy!(lazy_build_fingerprint_lazy, "generic/generic/generic:14/UP1A.231005.007/12345678:user/release-keys");
+build_const_lazy!(
+    lazy_build_fingerprint_lazy,
+    "generic/generic/generic:14/UP1A.231005.007/12345678:user/release-keys"
+);
 build_const_lazy!(lazy_build_hardware_lazy, "generic");
 build_const_lazy!(lazy_build_host_lazy, "build-host");
 build_const_lazy!(lazy_build_id_lazy, "UP1A.231005.007");
@@ -85,7 +91,6 @@ version_const_lazy!(lazy_version_sdk_int_lazy, "34");
 version_const_lazy!(lazy_version_security_patch_lazy, "2024-01-01");
 version_const_lazy!(lazy_version_base_os_lazy, "");
 version_const_lazy!(lazy_version_preview_sdk_int_lazy, "0");
-
 
 // android.os.Build host shims.
 

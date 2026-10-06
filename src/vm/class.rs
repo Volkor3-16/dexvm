@@ -772,22 +772,86 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0,
         [
-            sdef!("BOARD", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_board_lazy)),
-            sdef!("BOOTLOADER", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_bootloader_lazy)),
-            sdef!("BRAND", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_brand_lazy)),
-            sdef!("DEVICE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_device_lazy)),
-            sdef!("DISPLAY", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_display_lazy)),
-            sdef!("FINGERPRINT", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_fingerprint_lazy)),
-            sdef!("HARDWARE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_hardware_lazy)),
-            sdef!("HOST", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_host_lazy)),
-            sdef!("ID", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_id_lazy)),
-            sdef!("MANUFACTURER", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_manufacturer_lazy)),
-            sdef!("MODEL", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_model_lazy)),
-            sdef!("PRODUCT", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_product_lazy)),
-            sdef!("SERIAL", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_serial_lazy)),
-            sdef!("TAGS", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_tags_lazy)),
-            sdef!("TYPE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_type_lazy)),
-            sdef!("USER", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_user_lazy)),
+            sdef!(
+                "BOARD",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_board_lazy)
+            ),
+            sdef!(
+                "BOOTLOADER",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_bootloader_lazy)
+            ),
+            sdef!(
+                "BRAND",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_brand_lazy)
+            ),
+            sdef!(
+                "DEVICE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_device_lazy)
+            ),
+            sdef!(
+                "DISPLAY",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_display_lazy)
+            ),
+            sdef!(
+                "FINGERPRINT",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_fingerprint_lazy)
+            ),
+            sdef!(
+                "HARDWARE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_hardware_lazy)
+            ),
+            sdef!(
+                "HOST",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_host_lazy)
+            ),
+            sdef!(
+                "ID",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_id_lazy)
+            ),
+            sdef!(
+                "MANUFACTURER",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_manufacturer_lazy)
+            ),
+            sdef!(
+                "MODEL",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_model_lazy)
+            ),
+            sdef!(
+                "PRODUCT",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_product_lazy)
+            ),
+            sdef!(
+                "SERIAL",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_serial_lazy)
+            ),
+            sdef!(
+                "TAGS",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_tags_lazy)
+            ),
+            sdef!(
+                "TYPE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_type_lazy)
+            ),
+            sdef!(
+                "USER",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_user_lazy)
+            ),
         ]
     ),
     #[cfg(feature = "android")]
@@ -797,14 +861,46 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0,
         [
-            sdef!("CODENAME", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_codename_lazy)),
-            sdef!("INCREMENTAL", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_incremental_lazy)),
-            sdef!("RELEASE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_release_lazy)),
-            sdef!("SDK", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_sdk_lazy)),
-            sdef!("SDK_INT", "I", ShimValue::Lazy(native::lazy_version_sdk_int_lazy)),
-            sdef!("SECURITY_PATCH", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_security_patch_lazy)),
-            sdef!("BASE_OS", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_base_os_lazy)),
-            sdef!("PREVIEW_SDK_INT", "I", ShimValue::Lazy(native::lazy_version_preview_sdk_int_lazy)),
+            sdef!(
+                "CODENAME",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_codename_lazy)
+            ),
+            sdef!(
+                "INCREMENTAL",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_incremental_lazy)
+            ),
+            sdef!(
+                "RELEASE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_release_lazy)
+            ),
+            sdef!(
+                "SDK",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_sdk_lazy)
+            ),
+            sdef!(
+                "SDK_INT",
+                "I",
+                ShimValue::Lazy(native::lazy_version_sdk_int_lazy)
+            ),
+            sdef!(
+                "SECURITY_PATCH",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_security_patch_lazy)
+            ),
+            sdef!(
+                "BASE_OS",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_base_os_lazy)
+            ),
+            sdef!(
+                "PREVIEW_SDK_INT",
+                "I",
+                ShimValue::Lazy(native::lazy_version_preview_sdk_int_lazy)
+            ),
         ]
     ),
     #[cfg(feature = "android")]
@@ -1554,9 +1650,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     shim!(
         "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
         Some("Ljava/lang/Object;"),
-        &[
-            "Ljava/io/Serializable;"
-        ],
+        &["Ljava/io/Serializable;"],
         0
     ),
     shim!(
@@ -1854,12 +1948,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &["Lkotlin/coroutines/CoroutineContext;"],
         ACC_ABSTRACT
     ),
-    shim!(
-        "Lkotlinx/coroutines/Job;",
-        None,
-        &[],
-        ACC_INTERFACE
-    ),
+    shim!("Lkotlinx/coroutines/Job;", None, &[], ACC_INTERFACE),
     shim!(
         "Lkotlin/coroutines/jvm/internal/SuspendLambda;",
         Some("Ljava/lang/Object;"),
@@ -3387,7 +3476,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Leu/kanade/tachiyomi/AppInfo;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Leu/kanade/tachiyomi/AppInfo;",
+            ShimValue::Lazy(native::lazy_app_info_instance)
+        ),]
     ),
     #[cfg(feature = "tachiyomi")]
     shim!(
@@ -3665,12 +3759,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0
     ),
-    shim!(
-        "Lkotlinx/coroutines/Deferred;",
-        None,
-        &[],
-        ACC_INTERFACE
-    ),
+    shim!("Lkotlinx/coroutines/Deferred;", None, &[], ACC_INTERFACE),
     shim!(
         "Lkotlinx/coroutines/MainCoroutineDispatcher;",
         Some("Ljava/lang/Object;"),
@@ -3706,12 +3795,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         ACC_INTERFACE
     ),
-    shim!(
-        "Lkotlinx/coroutines/sync/Mutex;",
-        None,
-        &[],
-        ACC_INTERFACE
-    ),
+    shim!("Lkotlinx/coroutines/sync/Mutex;", None, &[], ACC_INTERFACE),
     shim!(
         "Lkotlinx/coroutines/sync/MutexKt;",
         Some("Ljava/lang/Object;"),

@@ -29,6 +29,11 @@ pub(crate) fn dtf_with_locale(_vm: &mut Vm, args: &[JValue]) -> R {
     Ok(args[0])
 }
 
+/// `withZone` doesn't affect this simplified formatter — returns `this` for chaining.
+pub(crate) fn dtf_with_zone(_vm: &mut Vm, args: &[JValue]) -> R {
+    Ok(args[0])
+}
+
 pub(crate) fn dtf_of_localized_date(vm: &mut Vm, _args: &[JValue]) -> R {
     alloc(
         vm,
@@ -93,6 +98,13 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Ljava/time/format/DateTimeFormatter;",
         "ofPattern",
+        "(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;",
+        false,
+        dtf_of_pattern
+    ),
+    ne!(
+        "Ljava/time/format/DateTimeFormatter;",
+        "ofPattern",
         "(Ljava/lang/String;Ljava/util/Locale;)Ljava/time/format/DateTimeFormatter;",
         false,
         dtf_of_pattern
@@ -110,6 +122,13 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "(Ljava/util/Locale;)Ljava/time/format/DateTimeFormatter;",
         true,
         dtf_with_locale
+    ),
+    ne!(
+        "Ljava/time/format/DateTimeFormatter;",
+        "withZone",
+        "(Ljava/time/ZoneId;)Ljava/time/format/DateTimeFormatter;",
+        true,
+        dtf_with_zone
     ),
     ne!(
         "Ljava/time/format/DateTimeFormatter;",

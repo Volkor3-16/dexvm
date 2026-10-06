@@ -14,10 +14,11 @@ macro_rules! locale_const {
             let Ok(class) = _vm.ensure_class_by_desc("Ljava/util/Locale;") else {
                 return Err(npe(_vm));
             };
-            Ok(JValue::Obj(
-                _vm.arena
-                    .alloc(class, Vec::new(), Some(Native::Str($tag.into()))),
-            ))
+            Ok(JValue::Obj(_vm.arena.alloc(
+                class,
+                Vec::new(),
+                Some(Native::Str($tag.into())),
+            )))
         }
     };
 }

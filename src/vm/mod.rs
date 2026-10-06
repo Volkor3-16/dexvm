@@ -831,11 +831,22 @@ impl Vm {
             .collect();
         let host = self.host_natives.clone();
         shim_natives.extend(host.iter());
-        for ne in shim_natives.into_iter().filter(|ne| ne.class == desc) {
+        let shim_natives_instance: Vec<_> = shim_natives
+            .iter()
+            .filter(|ne| ne.class == desc && ne.instance)
+            .cloned()
+            .collect();
+        let shim_natives_static: Vec<_> = shim_natives
+            .iter()
+            .filter(|ne| ne.class == desc && !ne.instance)
+            .cloned()
+            .collect();
+
+        // Process instance methods
+        for ne in shim_natives_instance {
             let name = self.intern(ne.name);
             let sig = self.intern(ne.sig);
             let (args, ret) = parse_sig(ne.sig);
-            let static_method = !ne.instance;
             let slot = methods.len() as u32;
             dispatch.insert((name, sig), slot);
             methods.push(Method {
@@ -845,14 +856,42 @@ impl Vm {
                 sig,
                 ret: self.intern(ret),
                 args: args.iter().map(|a| self.intern(a)).collect(),
-                access_flags: class::ACC_PUBLIC | if static_method { ACC_STATIC } else { 0 },
-                static_method,
+                access_flags: class::ACC_PUBLIC,
+                static_method: false,
                 dex_idx: 0,
                 native_key: Some((desc_id, name, sig)),
                 native_decl: false,
                 code: None,
                 insns: OnceLock::new(),
             });
+        }
+        // Process static methods (skip static fields which have field descriptors without parentheses)
+        for ne in shim_natives_static {
+            let sig_str = ne.sig;
+            // Only process as method if signature looks like a method signature (contains '(' and ')')
+            if sig_str.contains('(') && sig_str.contains(')') {
+                let name = self.intern(ne.name);
+                let sig = self.intern(ne.sig);
+                let (args, ret) = parse_sig(ne.sig);
+                let slot = methods.len() as u32;
+                dispatch.insert((name, sig), slot);
+                methods.push(Method {
+                    slot,
+                    class: id,
+                    name,
+                    sig,
+                    ret: self.intern(ret),
+                    args: args.iter().map(|a| self.intern(a)).collect(),
+                    access_flags: class::ACC_PUBLIC | class::ACC_STATIC,
+                    static_method: true,
+                    dex_idx: 0,
+                    native_key: Some((desc_id, name, sig)),
+                    native_decl: false,
+                    code: None,
+                    insns: OnceLock::new(),
+                });
+            }
+            // Static fields are handled separately in def.statics loop below
         }
 
         // static fields

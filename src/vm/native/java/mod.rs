@@ -12,6 +12,8 @@ mod text;
 mod r#time;
 mod util;
 
+pub(crate) mod eu;
+
 pub(crate) mod javax_crypto;
 
 pub(crate) use self::io::*;
@@ -40,4 +42,5 @@ pub(crate) fn java_tables(out: &mut Vec<&'static [NativeEntry]>) {
     out.extend(text::TEXT_TABLE);
     out.extend(r#time::TIME_TABLE);
     out.extend(util::UTIL_TABLE);
+    out.extend(eu::TABLE);
 }
