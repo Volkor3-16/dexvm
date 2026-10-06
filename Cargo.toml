@@ -94,6 +94,11 @@ name = "exttest"
 path = "src/bin/exttest.rs"
 required-features = ["keiyoushi"]
 
+[[bin]]
+name = "exttest_live"
+path = "src/bin/exttest_live.rs"
+required-features = ["keiyoushi"]
+
 [dependencies]
 urlencoding = { version = "2.1" }
 fancy-regex = "0.19.0"
@@ -115,6 +120,7 @@ serde_json = { version = "1.0.151", features = ["preserve_order"] }
 chrono = { version = "0.4", features = ["serde"] }
 ureq = { version = "3.4", features = ["cookies"] }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+tokio = { version = "1.39", features = ["rt-multi-thread", "sync", "time", "process"] }
 rquickjs = { version = "0.12.2", optional = true }
 zune-png = { version = "0.5.2", default-features = false, optional = true }
 zune-jpeg = { version = "0.5.15", default-features = false, optional = true }

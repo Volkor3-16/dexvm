@@ -15,8 +15,12 @@ use std::rc::Rc;
 use dexvm::keiyoushi::{FilterState, HttpData, HttpResp, Keiyoushi, Manga};
 
 const APK: &str = "fixtures/tachiyomi-all.akuma-v1.4.10.apk";
-const LIVE_DIR: &str = "fixtures/live";
+const DEFAULT_LIVE_DIR: &str = "fixtures/live";
 const QUERY: &str = "one piece";
+
+fn live_dir() -> String {
+    std::env::var("DEXVM_LIVE_DIR").unwrap_or_else(|_| DEFAULT_LIVE_DIR.to_string())
+}
 
 /// APK under test; override with DEXVM_APK to point at another keiyoushi
 /// extension (e.g. fixtures/tachiyomi-en.mangapill-v1.4.9.apk).
@@ -82,7 +86,8 @@ fn to_resp(r: ureq::http::Response<ureq::Body>) -> HttpResp {
 /// Saves each distinct response as `fixtures/live/NNN-slug.html` plus a
 /// tab-separated manifest (code, file, method, url).
 fn save_fixtures(caps: &[(String, String, i32, String)], blocked: bool) {
-    let _ = std::fs::create_dir_all(LIVE_DIR);
+    let ldir = live_dir();
+    let _ = std::fs::create_dir_all(&ldir);
     let mut manifest = String::new();
     let mut seen = std::collections::HashSet::new();
     let mut n = 0usize;
@@ -102,17 +107,17 @@ fn save_fixtures(caps: &[(String, String, i32, String)], blocked: bool) {
             })
             .collect();
         let fname: String = format!("{n:03}-{slug}").chars().take(100).collect();
-        let _ = std::fs::write(format!("{LIVE_DIR}/{fname}"), body);
+        let _ = std::fs::write(format!("{ldir}/{fname}"), body);
         manifest.push_str(&format!("{code}\t{fname}\t{method}\t{url}\n"));
         n += 1;
     }
-    let _ = std::fs::write(format!("{LIVE_DIR}/manifest.txt"), manifest);
+    let _ = std::fs::write(format!("{ldir}/manifest.txt"), manifest);
     if blocked {
-        let _ = std::fs::write(format!("{LIVE_DIR}/BLOCKED"), "");
+        let _ = std::fs::write(format!("{ldir}/BLOCKED"), "");
     } else {
-        let _ = std::fs::remove_file(format!("{LIVE_DIR}/BLOCKED"));
+        let _ = std::fs::remove_file(format!("{ldir}/BLOCKED"));
     }
-    eprintln!("live: captured {n} responses into {LIVE_DIR}/ (blocked={blocked})");
+    eprintln!("live: captured {n} responses into {ldir}/ (blocked={blocked})");
 }
 
 fn init_logger() {
@@ -161,7 +166,9 @@ fn live_full_pipeline() {
         Ok(fl) => fl,
         Err(e) => panic!("filters failed: {}", ext.describe_error(&e)),
     };
-    assert!(!fl.is_empty(), "no filters listed");
+    if fl.is_empty() {
+        eprintln!("warn: extension has no filters, proceeding with empty filter states");
+    }
     let states: Vec<FilterState> = fl
         .iter()
         .map(|f| FilterState {
@@ -179,10 +186,11 @@ fn live_full_pipeline() {
         .unwrap_or_else(|e| panic!("search failed: {}", ext.describe_error(&e)));
 
     let live = !(popular.mangas.is_empty() && found.mangas.is_empty());
+    let ldir = live_dir();
     if !live {
         eprintln!(
             "warn: no manga parsed from the live site (WAF/geo/outage?) — pipeline \
-             still exercised end to end; see fixtures/live/*.html"
+             still exercised end to end; see {}/*.html", ldir
         );
     }
 

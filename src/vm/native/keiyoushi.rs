@@ -380,7 +380,12 @@ pub(crate) fn http_source_search_manga_request(vm: &mut Vm, args: &[JValue]) -> 
         Ok(u) => u,
         Err(_) => return Err(npe(vm)),
     };
-    let url = format!("{}/search?q={}&page={}", base_url.trim_end_matches('/'), urlencoding::encode(&query), page);
+    let url = format!(
+        "{}/search?q={}&page={}",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(&query),
+        page
+    );
     let request = alloc(
         vm,
         REQUEST,
@@ -470,7 +475,9 @@ fn http_source_get_latest(vm: &mut Vm, args: &[JValue]) -> R {
 
 fn http_source_get_details(vm: &mut Vm, args: &[JValue]) -> R {
     if args.len() < 2 {
-        return Err(nat_fatal(JvmError::Resolution("mangaDetailsRequest requires at least 2 arguments".into())));
+        return Err(nat_fatal(JvmError::Resolution(
+            "mangaDetailsRequest requires at least 2 arguments".into(),
+        )));
     }
     let request_args = &args[1..2];
     http_source_get_suspend(
@@ -514,7 +521,9 @@ fn http_source_prepare_new_chapter(_vm: &mut Vm, _args: &[JValue]) -> R {
 
 fn http_source_fetch_details(vm: &mut Vm, args: &[JValue]) -> R {
     if args.len() < 2 {
-        return Err(nat_fatal(JvmError::Resolution("mangaDetailsRequest requires at least 2 arguments".into())));
+        return Err(nat_fatal(JvmError::Resolution(
+            "mangaDetailsRequest requires at least 2 arguments".into(),
+        )));
     }
     http_source_fetch(
         vm,
@@ -529,7 +538,9 @@ fn http_source_fetch_details(vm: &mut Vm, args: &[JValue]) -> R {
 
 fn http_source_fetch_chapters(vm: &mut Vm, args: &[JValue]) -> R {
     if args.len() < 2 {
-        return Err(nat_fatal(JvmError::Resolution("chapterListRequest requires at least 2 arguments".into())));
+        return Err(nat_fatal(JvmError::Resolution(
+            "chapterListRequest requires at least 2 arguments".into(),
+        )));
     }
     http_source_fetch(
         vm,
@@ -696,76 +707,110 @@ fn parse_mangas_page_response(vm: &mut Vm, response: JValue) -> R {
         Some(Native::Response { body, .. }) => body.clone().unwrap_or_default(),
         _ => return Err(npe(vm)),
     };
-    
+
     // Parse JSON body
     let body_str = String::from_utf8_lossy(&body_bytes);
     let mangas_page = match parse_mangas_page_json(&body_str) {
         Ok(mp) => mp,
         Err(_) => {
             // Return empty MangasPage on parse error
-            MangasPage { mangas: Vec::new(), has_next: false }
+            MangasPage {
+                mangas: Vec::new(),
+                has_next: false,
+            }
         }
     };
-    
+
     // Allocate Manga objects and collect their references
     let mut manga_refs = Vec::with_capacity(mangas_page.mangas.len());
-    
+
     for manga in mangas_page.mangas {
-        let manga_obj = vm.alloc_native(
-            "Leu/kanade/tachiyomi/source/model/SManga;",
-            Native::SManga {
-                title: manga.title,
-                author: Some(manga.author),
-                artist: Some(manga.artist),
-                description: Some(manga.description),
-                genre: Some(manga.genre),
-                status: manga.status,
-                thumbnail_url: manga.thumbnail_url,
-                url: manga.url,
-                update_strategy: JValue::Null,
-                memo: JValue::Null,
-            }
-        ).map_err(nat_fatal)?;
+        let manga_obj = vm
+            .alloc_native(
+                "Leu/kanade/tachiyomi/source/model/SManga;",
+                Native::SManga {
+                    title: manga.title,
+                    author: Some(manga.author),
+                    artist: Some(manga.artist),
+                    description: Some(manga.description),
+                    genre: Some(manga.genre),
+                    status: manga.status,
+                    thumbnail_url: manga.thumbnail_url,
+                    url: manga.url,
+                    update_strategy: JValue::Null,
+                    memo: JValue::Null,
+                },
+            )
+            .map_err(nat_fatal)?;
         manga_refs.push(manga_obj);
     }
-    
+
     // Allocate MangasPage object
     vm.alloc_native(
         "Leu/kanade/tachiyomi/source/model/MangasPage;",
         Native::SMangasPage {
             mangas: manga_refs,
             has_next: mangas_page.has_next,
-        }
-    ).map_err(nat_fatal)
+        },
+    )
+    .map_err(nat_fatal)
 }
 
 /// Parse MangasPage from JSON string (handles both REST and GraphQL formats).
 fn parse_mangas_page_json(json: &str) -> Result<MangasPage, Box<dyn std::error::Error>> {
     use serde_json::Value;
     let v: Value = serde_json::from_str(json)?;
-    
+
     let mut mangas = Vec::new();
     let has_next = v.get("hasNext").and_then(|x| x.as_bool()).unwrap_or(false);
-    
+
     // Try REST format first: { "mangas": [...], "hasNext": bool }
     let mut found_mangas = false;
     if let Some(arr) = v.get("mangas").and_then(|x| x.as_array()) {
         found_mangas = true;
         for item in arr {
             let manga = Manga {
-                title: item.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                author: item.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                artist: item.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                description: item.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                genre: item.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                title: item
+                    .get("title")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                author: item
+                    .get("author")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                artist: item
+                    .get("artist")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: item
+                    .get("description")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                genre: item
+                    .get("genre")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 status: item.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                thumbnail_url: item.get("thumbnailUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                thumbnail_url: item
+                    .get("thumbnailUrl")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: item
+                    .get("url")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             };
             mangas.push(manga);
         }
     }
-    
+
     // Try GraphQL format: { "data": { "popularManga": { "mangas": [...], "hasNext": bool } } }
     // or { "data": { "searchManga": { "mangas": [...], "hasNext": bool } } }
     // or { "data": { "latestUpdates": { "mangas": [...], "hasNext": bool } } }
@@ -776,14 +821,42 @@ fn parse_mangas_page_json(json: &str) -> Result<MangasPage, Box<dyn std::error::
                     found_mangas = true;
                     for item in mangas_obj {
                         let manga = Manga {
-                            title: item.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                            author: item.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                            artist: item.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                            description: item.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                            genre: item.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                            title: item
+                                .get("title")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            author: item
+                                .get("author")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            artist: item
+                                .get("artist")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            description: item
+                                .get("description")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            genre: item
+                                .get("genre")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             status: item.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                            thumbnail_url: item.get("thumbnailUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                            url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                            thumbnail_url: item
+                                .get("thumbnailUrl")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            url: item
+                                .get("url")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                         };
                         mangas.push(manga);
                     }
@@ -796,7 +869,7 @@ fn parse_mangas_page_json(json: &str) -> Result<MangasPage, Box<dyn std::error::
             }
         }
     }
-    
+
     Ok(MangasPage { mangas, has_next })
 }
 

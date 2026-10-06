@@ -430,6 +430,21 @@ impl Vm {
             return Ok(c);
         }
         let desc = self.dex_at(dex_idx).type_descriptor(type_id).to_string();
+        // Handle primitive type descriptors
+        if desc.len() == 1 {
+            match desc.as_bytes()[0] {
+                b'Z' => return self.ensure_class_by_desc("Ljava/lang/Boolean;"),
+                b'B' => return self.ensure_class_by_desc("Ljava/lang/Byte;"),
+                b'C' => return self.ensure_class_by_desc("Ljava/lang/Character;"),
+                b'S' => return self.ensure_class_by_desc("Ljava/lang/Short;"),
+                b'I' => return self.ensure_class_by_desc("Ljava/lang/Integer;"),
+                b'J' => return self.ensure_class_by_desc("Ljava/lang/Long;"),
+                b'F' => return self.ensure_class_by_desc("Ljava/lang/Float;"),
+                b'D' => return self.ensure_class_by_desc("Ljava/lang/Double;"),
+                b'V' => return Err(JvmError::Resolution("void type has no class".into())),
+                _ => {}
+            }
+        }
         if desc.starts_with('[') {
             let desc_id = self.intern(&desc);
             if let Some(&c) = self.class_by_desc.get(&desc_id) {
@@ -471,6 +486,21 @@ impl Vm {
             return Ok(c);
         }
         let desc = self.str_of(desc_id).to_string();
+        // Handle primitive type descriptors (single-character JVM type descriptors)
+        if desc.len() == 1 {
+            match desc.as_bytes()[0] {
+                b'Z' => return self.ensure_class_by_desc("Ljava/lang/Boolean;"),
+                b'B' => return self.ensure_class_by_desc("Ljava/lang/Byte;"),
+                b'C' => return self.ensure_class_by_desc("Ljava/lang/Character;"),
+                b'S' => return self.ensure_class_by_desc("Ljava/lang/Short;"),
+                b'I' => return self.ensure_class_by_desc("Ljava/lang/Integer;"),
+                b'J' => return self.ensure_class_by_desc("Ljava/lang/Long;"),
+                b'F' => return self.ensure_class_by_desc("Ljava/lang/Float;"),
+                b'D' => return self.ensure_class_by_desc("Ljava/lang/Double;"),
+                b'V' => return Err(JvmError::Resolution("void type has no class".into())),
+                _ => {}
+            }
+        }
         if let Some(inner) = desc.strip_prefix('[') {
             // find the dex type id for the inner descriptor of this array
             // descriptor (any dex), so array classes link to the exact
@@ -743,6 +773,21 @@ impl Vm {
 
     fn load_shim_class(&mut self, desc_id: u32) -> Result<u32, JvmError> {
         let desc = self.str_of(desc_id).to_string();
+        // Handle primitive type descriptors (single-character JVM type descriptors)
+        if desc.len() == 1 {
+            match desc.as_bytes()[0] {
+                b'Z' => return self.ensure_class_by_desc("Ljava/lang/Boolean;"),
+                b'B' => return self.ensure_class_by_desc("Ljava/lang/Byte;"),
+                b'C' => return self.ensure_class_by_desc("Ljava/lang/Character;"),
+                b'S' => return self.ensure_class_by_desc("Ljava/lang/Short;"),
+                b'I' => return self.ensure_class_by_desc("Ljava/lang/Integer;"),
+                b'J' => return self.ensure_class_by_desc("Ljava/lang/Long;"),
+                b'F' => return self.ensure_class_by_desc("Ljava/lang/Float;"),
+                b'D' => return self.ensure_class_by_desc("Ljava/lang/Double;"),
+                b'V' => return Err(JvmError::Resolution("void type has no class".into())),
+                _ => {}
+            }
+        }
         let def = SHIM_CLASSES
             .iter()
             .find(|d| d.desc == desc)

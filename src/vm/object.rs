@@ -956,7 +956,13 @@ impl Native {
                         _ => None,
                     } {
                         push(Some(callback), out);
-                    } else if matches!(&operator, RxOperator::Cache | RxOperator::Single | RxOperator::ToBlocking | RxOperator::ToList) {
+                    } else if matches!(
+                        &operator,
+                        RxOperator::Cache
+                            | RxOperator::Single
+                            | RxOperator::ToBlocking
+                            | RxOperator::ToList
+                    ) {
                         // These variants don't have callbacks, just skip
                     }
                 }

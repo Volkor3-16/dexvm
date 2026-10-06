@@ -53,7 +53,9 @@ pub(crate) fn completable_deferred_default(vm: &mut Vm, _args: &[JValue]) -> R {
 pub(crate) fn mutex_default(vm: &mut Vm, _args: &[JValue]) -> R {
     // Create a simple mutex implementation using Native::Mutex
     // The class will be set to the Mutex interface, which now has default methods
-    let mutex_class = vm.ensure_class_by_desc("Lkotlinx/coroutines/sync/Mutex;").map_err(|e| iae(vm, &e.to_string()))?;
+    let mutex_class = vm
+        .ensure_class_by_desc("Lkotlinx/coroutines/sync/Mutex;")
+        .map_err(|e| iae(vm, &e.to_string()))?;
     let mutex_obj = vm.arena.alloc(
         mutex_class,
         Vec::new(),
@@ -130,10 +132,10 @@ pub(crate) fn mutex_suspend_lock(vm: &mut Vm, args: &[JValue]) -> R {
         *locked = true;
         was_locked
     };
-    
+
     // Execute the block synchronously - release the mutable borrow first
     let result = vm.invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![]);
-    
+
     // Release the lock
     {
         let Some(Native::Mutex { locked }) = payload_mut(vm, JValue::Obj(mutex)) else {
@@ -141,13 +143,18 @@ pub(crate) fn mutex_suspend_lock(vm: &mut Vm, args: &[JValue]) -> R {
         };
         *locked = false;
     }
-    
+
     // Resume the continuation with the result
     let result_val = match result {
         Ok(res) => res,
         Err(_e) => JValue::Obj(vm.err_npe()),
     };
-    let _ = vm.invoke_virtual_args(cont, "resumeWith", "(Ljava/lang/Object;)V", vec![result_val]);
+    let _ = vm.invoke_virtual_args(
+        cont,
+        "resumeWith",
+        "(Ljava/lang/Object;)V",
+        vec![result_val],
+    );
     Ok(JValue::Null)
 }
 
@@ -265,7 +272,9 @@ pub(crate) fn coroutines_launch(vm: &mut Vm, args: &[JValue]) -> R {
 
 pub(crate) fn coroutines_async(vm: &mut Vm, args: &[JValue]) -> R {
     let block = args[1];
-    let value = vm.invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![]).unwrap_or(JValue::Null);
+    let value = vm
+        .invoke_virtual_args(block, "invoke", "()Ljava/lang/Object;", vec![])
+        .unwrap_or(JValue::Null);
     alloc(
         vm,
         "Lkotlinx/coroutines/Deferred;",
@@ -309,8 +318,6 @@ pub(crate) fn coroutines_with_context_instance(vm: &mut Vm, args: &[JValue]) -> 
         &[scope, args[2]],
     )
 }
-
-
 
 // Job instance methods
 pub(crate) fn coroutines_job_join(vm: &mut Vm, args: &[JValue]) -> R {
@@ -368,7 +375,6 @@ pub(crate) fn coroutines_job_cancel_instance(vm: &mut Vm, args: &[JValue]) -> R 
 pub(crate) fn coroutines_job_children_instance(vm: &mut Vm, args: &[JValue]) -> R {
     list_alloc(vm, vec![])
 }
-
 
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/CoroutineScopeKt;", "CoroutineScope", "(Lkotlin/coroutines/CoroutineContext;)Lkotlinx/coroutines/CoroutineScope;", false, coroutine_scope_create),

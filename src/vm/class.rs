@@ -767,10 +767,45 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     shim!("Landroid/os/Bundle;", Some("Ljava/lang/Object;"), &[], 0),
     #[cfg(feature = "android")]
     shim!(
-        "Landroid/os/SystemClock;",
+        "Landroid/os/Build;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [
+            sdef!("BOARD", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_board_lazy)),
+            sdef!("BOOTLOADER", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_bootloader_lazy)),
+            sdef!("BRAND", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_brand_lazy)),
+            sdef!("DEVICE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_device_lazy)),
+            sdef!("DISPLAY", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_display_lazy)),
+            sdef!("FINGERPRINT", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_fingerprint_lazy)),
+            sdef!("HARDWARE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_hardware_lazy)),
+            sdef!("HOST", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_host_lazy)),
+            sdef!("ID", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_id_lazy)),
+            sdef!("MANUFACTURER", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_manufacturer_lazy)),
+            sdef!("MODEL", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_model_lazy)),
+            sdef!("PRODUCT", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_product_lazy)),
+            sdef!("SERIAL", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_serial_lazy)),
+            sdef!("TAGS", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_tags_lazy)),
+            sdef!("TYPE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_type_lazy)),
+            sdef!("USER", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_build_user_lazy)),
+        ]
+    ),
+    #[cfg(feature = "android")]
+    shim!(
+        "Landroid/os/Build$VERSION;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            sdef!("CODENAME", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_codename_lazy)),
+            sdef!("INCREMENTAL", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_incremental_lazy)),
+            sdef!("RELEASE", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_release_lazy)),
+            sdef!("SDK", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_sdk_lazy)),
+            sdef!("SDK_INT", "I", ShimValue::Lazy(native::lazy_version_sdk_int_lazy)),
+            sdef!("SECURITY_PATCH", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_security_patch_lazy)),
+            sdef!("BASE_OS", "Ljava/lang/String;", ShimValue::Lazy(native::lazy_version_base_os_lazy)),
+            sdef!("PREVIEW_SDK_INT", "I", ShimValue::Lazy(native::lazy_version_preview_sdk_int_lazy)),
+        ]
     ),
     #[cfg(feature = "android")]
     shim!("Landroid/util/Log;", Some("Ljava/lang/Object;"), &[], 0),
@@ -1422,47 +1457,47 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
             sdef!(
                 "US",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_us)
+                ShimValue::Lazy(native::lazy_locale_us_vm)
             ),
             sdef!(
                 "UK",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_uk)
+                ShimValue::Lazy(native::lazy_locale_uk_vm)
             ),
             sdef!(
                 "CANADA",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_canada)
+                ShimValue::Lazy(native::lazy_locale_canada_vm)
             ),
             sdef!(
                 "JAPAN",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_japan)
+                ShimValue::Lazy(native::lazy_locale_japan_vm)
             ),
             sdef!(
                 "KOREA",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_korea)
+                ShimValue::Lazy(native::lazy_locale_korea_vm)
             ),
             sdef!(
                 "CHINA",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_china)
+                ShimValue::Lazy(native::lazy_locale_china_vm)
             ),
             sdef!(
                 "FRANCE",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_france)
+                ShimValue::Lazy(native::lazy_locale_france_vm)
             ),
             sdef!(
                 "GERMANY",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_germany)
+                ShimValue::Lazy(native::lazy_locale_germany_vm)
             ),
             sdef!(
                 "ITALY",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_italy)
+                ShimValue::Lazy(native::lazy_locale_italy_vm)
             ),
         ]
     ),

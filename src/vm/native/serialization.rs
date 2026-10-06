@@ -1471,7 +1471,8 @@ pub(crate) fn lazy_json_element_serializer_instance(vm: &mut Vm) -> JValue {
         vm,
         "Lkotlinx/serialization/KSerializer;",
         Native::JsonElementSerializer,
-    ).expect("alloc JsonElementSerializer")
+    )
+    .expect("alloc JsonElementSerializer")
 }
 
 /// `JsonArraySerializer.INSTANCE`
@@ -1480,7 +1481,8 @@ pub(crate) fn lazy_json_array_serializer_instance(vm: &mut Vm) -> JValue {
         vm,
         "Lkotlinx/serialization/KSerializer;",
         Native::JsonArraySerializer,
-    ).expect("alloc JsonArraySerializer")
+    )
+    .expect("alloc JsonArraySerializer")
 }
 
 /// `JsonPrimitiveSerializer.INSTANCE`
@@ -1489,7 +1491,8 @@ pub(crate) fn lazy_json_primitive_serializer_instance(vm: &mut Vm) -> JValue {
         vm,
         "Lkotlinx/serialization/KSerializer;",
         Native::JsonPrimitiveSerializer,
-    ).expect("alloc JsonPrimitiveSerializer")
+    )
+    .expect("alloc JsonPrimitiveSerializer")
 }
 
 /// `JsonObjectSerializer.INSTANCE`
@@ -1498,7 +1501,8 @@ pub(crate) fn lazy_json_object_serializer_instance(vm: &mut Vm) -> JValue {
         vm,
         "Lkotlinx/serialization/KSerializer;",
         Native::JsonObjectSerializer,
-    ).expect("alloc JsonObjectSerializer")
+    )
+    .expect("alloc JsonObjectSerializer")
 }
 
 /// `JsonNullSerializer.INSTANCE`
@@ -1507,16 +1511,13 @@ pub(crate) fn lazy_json_null_serializer_instance(vm: &mut Vm) -> JValue {
         vm,
         "Lkotlinx/serialization/KSerializer;",
         Native::JsonNullSerializer,
-    ).expect("alloc JsonNullSerializer")
+    )
+    .expect("alloc JsonNullSerializer")
 }
 
 /// `Json$Default.INSTANCE`
 pub(crate) fn lazy_json_default_instance(vm: &mut Vm) -> JValue {
-    alloc(
-        vm,
-        "Lkotlinx/serialization/json/Json;",
-        Native::Opaque,
-    ).expect("alloc Json$Default")
+    alloc(vm, "Lkotlinx/serialization/json/Json;", Native::Opaque).expect("alloc Json$Default")
 }
 
 /// `JsonObject$Companion.serializer()` / `JsonArray$Companion.serializer()`
@@ -3009,7 +3010,10 @@ pub(crate) fn json_default_serialize(vm: &mut Vm, args: &[JValue]) -> R {
 /// `Json$Default.deserialize(strategy, element)` — delegates to Json.decodeFromJsonElement.
 pub(crate) fn json_default_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
     if args.len() < 3 {
-        return Err(iae(vm, "Json$Default.deserialize requires strategy and element"));
+        return Err(iae(
+            vm,
+            "Json$Default.deserialize requires strategy and element",
+        ));
     }
     let _strategy = args[1]; // DeserializationStrategy
     let element = args[2];
@@ -3020,11 +3024,7 @@ pub(crate) fn json_default_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
 
 /// `Json$Default.getInstance()` — returns the singleton Json instance.
 pub(crate) fn json_default_get_instance(vm: &mut Vm, _args: &[JValue]) -> R {
-    alloc(
-        vm,
-        "Lkotlinx/serialization/json/Json;",
-        Native::Opaque,
-    )
+    alloc(vm, "Lkotlinx/serialization/json/Json;", Native::Opaque)
 }
 
 /// `UnknownFieldException.<init>(index)` — allocated but never thrown in the
