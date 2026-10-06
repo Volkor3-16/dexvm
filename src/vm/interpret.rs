@@ -265,10 +265,34 @@ impl Vm {
                         None => return Ok(v),
                     },
                     Flow::Call(kind, mref, target, args, ret_pc) => {
+                        let method_name = self.str_of(mref.name);
                         let receiver = if kind == InvokeKind::Static {
                             None
                         } else {
-                            Some(f.regs[args.reg_at(0) as usize])
+                            let recv = f.regs[args.reg_at(0) as usize];
+                            // For Direct (invokespecial) calls, the receiver might be null
+                            // due to coroutine state machine not preserving `this` across
+                            // suspension points. Try to recover from frame locals.
+                            let recv = if recv.is_null_ref() && kind == InvokeKind::Direct {
+                                eprintln!("DEBUG Direct null recv: method={}, kind={:?}, reg_idx={}, recv={:?}, local0={:?}, f.class={}, f.pc={}", method_name, kind, args.reg_at(0), recv, f.regs.get(0), self.class_desc_str(f.class), f.pc);
+                                // In instance methods, local 0 is typically `this`
+                                if let Some(this_local) = f.regs.get(0) {
+                                    if !this_local.is_null_ref() {
+                                        eprintln!(
+                                            "DEBUG: Direct call null receiver recovered from local[0]={:?}",
+                                            this_local
+                                        );
+                                        *this_local
+                                    } else {
+                                        recv
+                                    }
+                                } else {
+                                    recv
+                                }
+                            } else {
+                                recv
+                            };
+                            Some(recv)
                         };
                         if std::env::var("DEXVM_TRACE").is_ok() {
                             let recv = receiver

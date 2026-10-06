@@ -289,22 +289,41 @@ fn http_source_fetch(
 ) -> R {
     // If receiver is null, we can't call virtual methods on it.
     // This happens when native is called via invokespecial from extension bytecode.
-    // In that case, we need to handle the request/parse inline without virtual calls.
+    // Fall back to default implementations that don't require a receiver.
     if receiver.is_null_ref() {
-        // For null receiver, we can't call virtual methods.
-        // Fall back to a default implementation.
-        // This is a simplified fallback - in practice, the receiver should never be null
-        // if the VM correctly passes it for invokespecial.
-        return Err(nat_fatal(JvmError::Fatal(
-            "http_source_fetch called with null receiver - VM bug in invokespecial arg passing".into()
-        )));
+        let result = (|| {
+            // Build request using default implementation (no receiver needed)
+            let request = match request_name {
+                "mangaDetailsRequest" => http_source_manga_details_request(vm, &[request_args[0]])?,
+                "chapterListRequest" => http_source_chapter_list_request(vm, &[request_args[0]])?,
+                "pageListRequest" => http_source_page_list_request(vm, &[request_args[0]])?,
+                "popularMangaRequest" => http_source_popular_manga_request(vm, &request_args[..1.min(request_args.len())])?,
+                "searchMangaRequest" => http_source_search_manga_request(vm, &request_args[..3.min(request_args.len())])?,
+                "latestUpdatesRequest" => http_source_latest_updates_request(vm, &request_args[..1.min(request_args.len())])?,
+                _ => return Err(nat_fatal(JvmError::Resolution(format!("unknown request: {}", request_name)))),
+            };
+            let response = keiyoushi_execute(vm, &[request])?;
+            // Parse response using default implementation (no receiver needed)
+            let result = match parse_name {
+                "mangaDetailsParse" => http_source_manga_details_parse(vm, &[response])?,
+                "chapterListParse" => http_source_chapter_list_parse(vm, &[response])?,
+                "pageListParse" => http_source_page_list_parse(vm, &[JValue::Null, response])?,
+                "popularMangaParse" => http_source_popular_manga_parse(vm, &[response])?,
+                "searchMangaParse" => http_source_search_manga_parse(vm, &[response])?,
+                "latestUpdatesParse" => http_source_latest_updates_parse(vm, &[response])?,
+                _ => return Err(nat_fatal(JvmError::Resolution(format!("unknown parse: {}", parse_name)))),
+            };
+            Ok(result)
+        })();
+        rx::rx_from_result(vm, result)
+    } else {
+        let result = (|| {
+            let request = inv_virt(vm, receiver, request_name, request_sig, request_args)?;
+            let response = keiyoushi_execute(vm, &[request])?;
+            inv_virt(vm, receiver, parse_name, parse_sig, &[response])
+        })();
+        rx::rx_from_result(vm, result)
     }
-    let result = (|| {
-        let request = inv_virt(vm, receiver, request_name, request_sig, request_args)?;
-        let response = keiyoushi_execute(vm, &[request])?;
-        inv_virt(vm, receiver, parse_name, parse_sig, &[response])
-    })();
-    rx::rx_from_result(vm, result)
 }
 
 fn http_source_fetch_search(vm: &mut Vm, args: &[JValue]) -> R {
@@ -806,6 +825,11 @@ pub(crate) fn http_source_search_manga_parse(vm: &mut Vm, args: &[JValue]) -> R 
     parse_mangas_page_response(vm, args[1])
 }
 
+/// Parse response body into SMangasPage for latest updates results.
+pub(crate) fn http_source_latest_updates_parse(vm: &mut Vm, args: &[JValue]) -> R {
+    parse_mangas_page_response(vm, args[1])
+}
+
 /// Common parser for MangasPage responses (popular, search, latest).
 fn parse_mangas_page_response(vm: &mut Vm, response: JValue) -> R {
     // Extract body from Response object
@@ -995,6 +1019,253 @@ struct Manga {
     status: i32,
     thumbnail_url: String,
     url: String,
+}
+
+/// Intermediate struct for parsed Chapter data.
+struct Chapter {
+    name: String,
+    url: String,
+    date_upload: i64,
+    scanlator: String,
+    chapter_number: f32,
+}
+
+/// Intermediate struct for parsed Page data.
+struct Page {
+    index: i32,
+    name: String,
+    url: String,
+    image_url: String,
+}
+
+/// Intermediate struct for parsed Manga details.
+struct MangaDetails {
+    title: String,
+    author: String,
+    artist: String,
+    description: String,
+    genre: String,
+    status: i32,
+    thumbnail_url: String,
+    url: String,
+    update_strategy: i32,
+    memo: String,
+}
+
+/// Parse chapter list JSON from various API formats.
+fn parse_chapter_list_json(json: &str) -> Result<Vec<Chapter>, Box<dyn std::error::Error>> {
+    use serde_json::Value;
+    let v: Value = serde_json::from_str(json)?;
+
+    let mut chapters = Vec::new();
+
+    // Try REST format: { "chapters": [...], "hasNext": bool }
+    if let Some(arr) = v.get("chapters").and_then(|x| x.as_array()) {
+        for item in arr {
+            let chapter = Chapter {
+                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                date_upload: item.get("date_upload").and_then(|x| x.as_i64()).unwrap_or(0),
+                scanlator: item.get("scanlator").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                chapter_number: item.get("chapter_number").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+            };
+            chapters.push(chapter);
+        }
+        return Ok(chapters);
+    }
+
+    // Try GraphQL format: { "data": { "chapterList": { "chapters": [...] } } }
+    if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
+        for (_, value) in data {
+            if let Some(arr) = value.get("chapters").and_then(|x| x.as_array()) {
+                for item in arr {
+                    let chapter = Chapter {
+                        name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        date_upload: item.get("date_upload").and_then(|x| x.as_i64()).unwrap_or(0),
+                        scanlator: item.get("scanlator").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        chapter_number: item.get("chapter_number").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+                    };
+                    chapters.push(chapter);
+                }
+                return Ok(chapters);
+            }
+        }
+    }
+
+    // Try array at root
+    if let Some(arr) = v.as_array() {
+        for item in arr {
+            let chapter = Chapter {
+                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                date_upload: item.get("date_upload").and_then(|x| x.as_i64()).unwrap_or(0),
+                scanlator: item.get("scanlator").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                chapter_number: item.get("chapter_number").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+            };
+            chapters.push(chapter);
+        }
+        return Ok(chapters);
+    }
+
+    Ok(chapters)
+}
+
+/// Parse page list JSON from various API formats.
+fn parse_page_list_json(json: &str) -> Result<Vec<Page>, Box<dyn std::error::Error>> {
+    use serde_json::Value;
+    let v: Value = serde_json::from_str(json)?;
+
+    let mut pages = Vec::new();
+
+    // Try REST format: { "pages": [...] } or { "data": { "pages": [...] } }
+    if let Some(arr) = v.get("pages").and_then(|x| x.as_array()) {
+        for item in arr {
+            let page = Page {
+                index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                image_url: item.get("imageUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            };
+            pages.push(page);
+        }
+        return Ok(pages);
+    }
+
+    if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
+        for (_, value) in data {
+            if let Some(arr) = value.get("pages").and_then(|x| x.as_array()) {
+                for item in arr {
+                    let page = Page {
+                        index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+                        name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        image_url: item.get("imageUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    };
+                    pages.push(page);
+                }
+                return Ok(pages);
+            }
+        }
+    }
+
+    if let Some(arr) = v.as_array() {
+        for item in arr {
+            let page = Page {
+                index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                image_url: item.get("imageUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            };
+            pages.push(page);
+        }
+        return Ok(pages);
+    }
+
+    Ok(pages)
+}
+
+/// Parse response body into page list (for null receiver fallback).
+pub(crate) fn http_source_page_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = receiver, args[1] = Response
+    let response = args[1];
+    // Extract body from Response object
+    let body_bytes = match payload(vm, response) {
+        Some(Native::Response { body, .. }) => body.clone().unwrap_or_default(),
+        _ => return Err(npe(vm)),
+    };
+
+    // Parse JSON body
+    let body_str = String::from_utf8_lossy(&body_bytes);
+    let page_list = match parse_page_list_json(&body_str) {
+        Ok(list) => list,
+        Err(_) => {
+            // Return empty List on parse error
+            let class = vm.ensure_class_by_desc("Ljava/util/ArrayList;").unwrap();
+            let list_obj = vm.arena.alloc(class, Vec::new(), Some(Native::List(Vec::new())));
+            return Ok(JValue::Obj(list_obj));
+        }
+    };
+
+    // Allocate SPPage objects and collect their references
+    let mut page_refs = Vec::with_capacity(page_list.len());
+
+    for page in page_list {
+        let page_obj = vm
+            .alloc_native(
+                "Leu/kanade/tachiyomi/source/model/Page;",
+                Native::SPPage {
+                    index: page.index,
+                    name: page.name,
+                    url: page.url,
+                    image_url: page.image_url,
+                },
+            ).map_err(|e| nat_fatal(JvmError::Resolution(e.to_string())))?;
+        page_refs.push(page_obj);
+    }
+
+    // Wrap in Java ArrayList
+    let class = vm.ensure_class_by_desc("Ljava/util/ArrayList;").unwrap();
+    let list_obj = vm.arena.alloc(class, page_refs.clone(), Some(Native::List(page_refs)));
+    Ok(JValue::Obj(list_obj))
+}
+
+/// Parse manga details JSON from various API formats.
+fn parse_manga_details_json(json: &str) -> Result<MangaDetails, Box<dyn std::error::Error>> {
+    use serde_json::Value;
+    let v: Value = serde_json::from_str(json)?;
+
+    let mut manga = MangaDetails {
+        title: String::new(),
+        author: String::new(),
+        artist: String::new(),
+        description: String::new(),
+        genre: String::new(),
+        status: 0,
+        thumbnail_url: String::new(),
+        url: String::new(),
+        update_strategy: 0,
+        memo: String::new(),
+    };
+
+    // Try direct fields first
+    manga.title = v.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.author = v.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.artist = v.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.description = v.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.genre = v.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.status = v.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+    manga.thumbnail_url = v.get("thumbnailUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.url = v.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.update_strategy = v.get("updateStrategy").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+    manga.memo = v.get("memo").and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+    // Try GraphQL format: { "data": { "manga": {...} } }
+    if manga.title.is_empty() {
+        if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
+            for (_, value) in data {
+                if let Some(obj) = value.as_object() {
+                    manga.title = obj.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.author = obj.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.artist = obj.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.description = obj.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.genre = obj.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.status = obj.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+                    manga.thumbnail_url = obj.get("thumbnailUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.url = obj.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.update_strategy = obj.get("updateStrategy").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+                    manga.memo = obj.get("memo").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    if manga.title.is_empty() {
+        return Err("No manga found".into());
+    }
+
+    Ok(manga)
 }
 
 /// Parse response body into List<SChapter> for chapter list.
@@ -2140,6 +2411,7 @@ pub const KEIYOUSHI_TABLE: &[NativeEntry] = &[
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "pageListRequest", "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;", true, http_source_page_list_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "popularMangaParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_popular_manga_parse),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "searchMangaParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_search_manga_parse),
+    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "latestUpdatesParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_latest_updates_parse),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "chapterListParse", "(Lokhttp3/Response;)Ljava/util/List;", true, http_source_chapter_list_parse),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "mangaDetailsParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/SManga;", true, http_source_manga_details_parse),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "getMangaUrl", "(Leu/kanade/tachiyomi/source/model/SManga;)Ljava/lang/String;", true, http_source_get_manga_url),
