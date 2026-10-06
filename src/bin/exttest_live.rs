@@ -18,13 +18,13 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::rc::Rc;
 
 use dexvm::keiyoushi::{FilterState, HttpData, HttpResp, Keiyoushi, Manga, MangaPages};
 use dexvm::vm::error::JvmError;
-use dexvm::{Context, permission};
+use dexvm::{permission, Context};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
@@ -36,13 +36,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    
+
     rt.block_on(async_main())
 }
 
 async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    
+
     let mut capture = false;
     let mut replay = false;
     let mut apk_filter: Option<String> = None;
@@ -50,13 +50,16 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let mut timeout_secs = 180;
     let mut jobs = DEFAULT_JOBS;
     let mut force = false;
-    
+
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--capture" => capture = true,
             "--replay" => replay = true,
-            "--all" => { capture = true; replay = true; }
+            "--all" => {
+                capture = true;
+                replay = true;
+            }
             "--apk" => {
                 i += 1;
                 apk_filter = args.get(i).cloned();
@@ -68,7 +71,10 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--jobs" | "-j" => {
                 i += 1;
-                jobs = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(DEFAULT_JOBS);
+                jobs = args
+                    .get(i)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(DEFAULT_JOBS);
             }
             "--force" => force = true,
             "--help" | "-h" => {
@@ -79,22 +85,22 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         }
         i += 1
     }
-    
+
     if !capture && !replay {
         eprintln!("Error: must specify --capture, --replay, or --all");
         print_help();
         std::process::exit(1);
     }
-    
+
     let apks = discover_apks(apk_filter.as_deref())?;
-    
+
     if apks.is_empty() {
         eprintln!("No APKs found");
         std::process::exit(1);
     }
-    
+
     println!("Found {} extension APK(s)", apks.len());
-    
+
     if capture {
         println!("\n=== CAPTURE PHASE (parallel jobs: {}) ===", jobs);
         if std::env::var("DEXVM_LIVE").is_err() {
@@ -103,17 +109,18 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         }
         run_capture_parallel(&apks, jobs, timeout_secs, verbose, force).await?;
     }
-    
+
     if replay {
         println!("\n=== REPLAY PHASE (in-process) ===");
         run_replay_in_process(&apks, verbose).await?;
     }
-    
+
     Ok(())
 }
 
 fn print_help() {
-    println!(r#"exttest_live - Capture and replay fixtures for ALL extensions
+    println!(
+        r#"exttest_live - Capture and replay fixtures for ALL extensions
 
 Usage:
   cargo run --features keiyoushi --bin exttest_live [OPTIONS]
@@ -139,12 +146,13 @@ Fixture layout:
     002-abc.json
     ...
     BLOCKED              # marker if site served WAF challenge
-"#);
+"#
+    );
 }
 
 fn discover_apks(filter: Option<&str>) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     let mut apks = Vec::new();
-    
+
     fn scan_dir(dir: &Path, apks: &mut Vec<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -226,10 +234,14 @@ async fn capture_one(
     let _permit = semaphore.acquire().await;
     let stem = apk_stem(&apk);
     let out_dir = fixture_dir(&apk);
-    
+
     // Check for existing valid fixtures (unless forced)
     if !force && has_valid_fixtures(&out_dir) {
-        println!("[{}] Using cached fixtures ({} responses)", stem, count_fixtures(&out_dir));
+        println!(
+            "[{}] Using cached fixtures ({} responses)",
+            stem,
+            count_fixtures(&out_dir)
+        );
         return Ok(CaptureResult {
             apk: apk.to_path_buf(),
             stem,
@@ -240,166 +252,248 @@ async fn capture_one(
             error: None,
         });
     }
-    
+
     fs::create_dir_all(&out_dir)?;
     let _ = fs::remove_file(out_dir.join("BLOCKED"));
-    
+
     println!("[{}] Capturing live fixtures...", stem);
     let start = Instant::now();
-    
+
     // Open extension and run capture pipeline in-process
-    let result = tokio::task::spawn_blocking(move || -> Result<CaptureResult, Box<dyn std::error::Error + Send + Sync>> {
-        println!("[{}] Capturing live fixtures...", stem);
-        let start = Instant::now();
-        
-        // Open extension
-        let mut ext = match Keiyoushi::open(apk.to_str().unwrap()) {
-            Ok(e) => e,
-            Err(e) => {
-                let err = format!("Failed to open APK: {}", e);
-                return Ok(CaptureResult {
-                    apk: apk.clone(),
-                    stem,
-                    success: false,
-                    blocked: false,
-                    duration_secs: 0,
-                    capture_count: 0,
-                    error: Some(err),
-                });
-            }
-        };
-        
-        // Set up HTTP capture
-        let out_dir_str = out_dir.to_string_lossy().into_owned();
-        let captures = Arc::new(Mutex::new(Vec::new()));
-        let captures_clone = captures.clone();
-        
-        ext.set_http_rc(Rc::new(move |req: &HttpData| {
-            let mut caps = captures_clone.lock().unwrap();
-            caps.push((req.method.clone(), req.url.clone(), req.headers.clone(), req.body.clone()));
-            // Return empty response to allow pipeline to continue
-            HttpResp::ok("<html></html>")
-        }));
-        
-        // Grant permissions
-        ext.ctx().grant(permission::Permission::Network(permission::NetworkPermission::Any));
-        ext.ctx().grant(permission::Permission::Filesystem(permission::FilesystemPermission::Any));
-        
-        // Run the full pipeline
-        let mut captured_any = false;
-        
-        // 1. Get sources
-        let sources = match ext.sources() {
-            Ok(s) => s,
-            Err(e) => {
-                let err = format!("sources(): {}", ext.describe_error(&e));
-                return Ok(CaptureResult {
-                    apk: apk.clone(),
-                    stem,
-                    success: false,
-                    blocked: false,
-                    duration_secs: start.elapsed().as_secs(),
-                    capture_count: 0,
-                    error: Some(err),
-                });
-            }
-        };
-        
-        println!("  Found {} source(s)", sources.len());
-        
-        for src in &sources {
-            // Get source metadata
-            let _ = ext.source_name(src);
-            let _ = ext.source_lang(src);
-            let _ = ext.source_base_url(src);
-            let _ = ext.supports_latest(src);
-            
-            // 2. Filters
-            let filters = match ext.filters(src) {
-                Ok(f) => f,
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<CaptureResult, Box<dyn std::error::Error + Send + Sync>> {
+            println!("[{}] Capturing live fixtures...", stem);
+            let start = Instant::now();
+
+            // Open extension
+            let mut ext = match Keiyoushi::open(apk.to_str().unwrap()) {
+                Ok(e) => e,
                 Err(e) => {
-                    if verbose {
-                        eprintln!("    filters failed: {}", ext.describe_error(&e));
-                    }
-                    Vec::new()
+                    let err = format!("Failed to open APK: {}", e);
+                    return Ok(CaptureResult {
+                        apk: apk.clone(),
+                        stem,
+                        success: false,
+                        blocked: false,
+                        duration_secs: 0,
+                        capture_count: 0,
+                        error: Some(err),
+                    });
                 }
             };
-            
-            let states: Vec<FilterState> = filters.iter()
-                .map(|f| FilterState { name: f.name.clone(), state: f.state })
-                .collect();
-            
-            // 3. Popular
-            let popular = ext.popular(src, 1).unwrap_or_else(|e| {
-                if verbose { eprintln!("    popular failed: {}", ext.describe_error(&e)); }
-                MangaPages { mangas: Vec::new(), has_next: false }
-            });
-            
-            // 4. Search
-            let search = ext.search(src, 1, "one piece", &states).unwrap_or_else(|e| {
-                if verbose { eprintln!("    search failed: {}", ext.describe_error(&e)); }
-                MangaPages { mangas: Vec::new(), has_next: false }
-            });
-            
-            // 5. Coroutine variants
-            let _ = ext.popular_coro(src, 1);
-            let _ = ext.search_coro(src, 1, "one piece", &states);
-            
-            // Get a manga for details/chapters/pages
-            let manga = popular.mangas.first()
-                .or(search.mangas.first())
-                .cloned()
-                .unwrap_or_else(|| Manga {
-                    title: "test".into(),
-                    url: "/manga/test".into(),
-                    ..Default::default()
+
+            // Set up HTTP capture with REAL responses
+            let out_dir_str = out_dir.to_string_lossy().into_owned();
+            let captures = Arc::new(Mutex::new(Vec::new()));
+            let captures_clone = captures.clone();
+
+            // Create a blocking HTTP client for real requests
+            let http_client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::limited(10))
+                .build()
+                .unwrap();
+
+            ext.set_http_rc(Rc::new(move |req: &HttpData| {
+                // Make the actual HTTP request
+                let mut http_req = http_client.request(req.method.parse().unwrap_or(reqwest::Method::GET), &req.url);
+                for (k, v) in &req.headers {
+                    http_req = http_req.header(k, v);
+                }
+                if let Some(body) = &req.body {
+                    if !body.is_empty() {
+                        http_req = http_req.body(body.clone());
+                    }
+                }
+
+                let response = match http_req.send() {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16() as i32;
+                        let headers: Vec<(String, String)> = resp
+                            .headers()
+                            .iter()
+                            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                            .collect();
+                        let body = resp.bytes().unwrap_or_default().to_vec();
+
+                        // Save the REAL response
+                        let mut caps = captures_clone.lock().unwrap();
+                        caps.push((
+                            req.method.clone(),
+                            req.url.clone(),
+                            headers,
+                            Some(String::from_utf8_lossy(&body).to_string()),
+                            status, // include actual status code
+                        ));
+
+                        HttpResp {
+                            code: status,
+                            message: "OK".into(),
+                            headers: Vec::new(),
+                            body: Some(body),
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("    HTTP request failed for {}: {}", req.url, e);
+                        let mut caps = captures_clone.lock().unwrap();
+                        caps.push((
+                            req.method.clone(),
+                            req.url.clone(),
+                            req.headers.clone(),
+                            req.body.clone(),
+                            0, // status code 0 for failed requests
+                        ));
+                        HttpResp::ok("<html></html>")
+                    }
+                };
+                response
+            }));
+
+            // Grant permissions
+            ext.ctx().grant(permission::Permission::Network(
+                permission::NetworkPermission::Any,
+            ));
+            ext.ctx().grant(permission::Permission::Filesystem(
+                permission::FilesystemPermission::Any,
+            ));
+
+            // Run the full pipeline
+            let mut captured_any = false;
+
+            // 1. Get sources
+            let sources = match ext.sources() {
+                Ok(s) => s,
+                Err(e) => {
+                    let err = format!("sources(): {}", ext.describe_error(&e));
+                    return Ok(CaptureResult {
+                        apk: apk.clone(),
+                        stem,
+                        success: false,
+                        blocked: false,
+                        duration_secs: start.elapsed().as_secs(),
+                        capture_count: 0,
+                        error: Some(err),
+                    });
+                }
+            };
+
+            println!("  Found {} source(s)", sources.len());
+
+            for src in &sources {
+                // Get source metadata
+                let _ = ext.source_name(src);
+                let _ = ext.source_lang(src);
+                let _ = ext.source_base_url(src);
+                let _ = ext.supports_latest(src);
+
+                // 2. Filters
+                let filters = match ext.filters(src) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        if verbose {
+                            eprintln!("    filters failed: {}", ext.describe_error(&e));
+                        }
+                        Vec::new()
+                    }
+                };
+
+                let states: Vec<FilterState> = filters
+                    .iter()
+                    .map(|f| FilterState {
+                        name: f.name.clone(),
+                        state: f.state,
+                    })
+                    .collect();
+
+                // 3. Popular
+                let popular = ext.popular(src, 1).unwrap_or_else(|e| {
+                    if verbose {
+                        eprintln!("    popular failed: {}", ext.describe_error(&e));
+                    }
+                    MangaPages {
+                        mangas: Vec::new(),
+                        has_next: false,
+                    }
                 });
-            
-            // 6. Manga details
-            let _ = ext.manga_details(src, &manga);
-            let _ = ext.manga_update_details(src, &manga);
-            
-            // 7. Chapters
-            let chapters = ext.chapters(src, &manga).unwrap_or_else(|e| {
-                if verbose { eprintln!("    chapters failed: {}", ext.describe_error(&e)); }
-                Vec::new()
-            });
-            
-            let _ = ext.manga_update_chapters(src, &manga);
-            
-            // 8. Pages
-            if let Some(chapter) = chapters.first() {
-                let _ = ext.pages(src, chapter);
-                let _ = ext.pages_coro(src, chapter);
+
+                // 4. Search
+                let search = ext
+                    .search(src, 1, "one piece", &states)
+                    .unwrap_or_else(|e| {
+                        if verbose {
+                            eprintln!("    search failed: {}", ext.describe_error(&e));
+                        }
+                        MangaPages {
+                            mangas: Vec::new(),
+                            has_next: false,
+                        }
+                    });
+
+                // 5. Coroutine variants
+                let _ = ext.popular_coro(src, 1);
+                let _ = ext.search_coro(src, 1, "one piece", &states);
+
+                // Get a manga for details/chapters/pages
+                let manga = popular
+                    .mangas
+                    .first()
+                    .or(search.mangas.first())
+                    .cloned()
+                    .unwrap_or_else(|| Manga {
+                        title: "test".into(),
+                        url: "/manga/test".into(),
+                        ..Default::default()
+                    });
+
+                // 6. Manga details
+                let _ = ext.manga_details(src, &manga);
+                let _ = ext.manga_update_details(src, &manga);
+
+                // 7. Chapters
+                let chapters = ext.chapters(src, &manga).unwrap_or_else(|e| {
+                    if verbose {
+                        eprintln!("    chapters failed: {}", ext.describe_error(&e));
+                    }
+                    Vec::new()
+                });
+
+                let _ = ext.manga_update_chapters(src, &manga);
+
+                // 8. Pages
+                if let Some(chapter) = chapters.first() {
+                    let _ = ext.pages(src, chapter);
+                    let _ = ext.pages_coro(src, chapter);
+                }
+
+                // 9. Latest
+                let _ = ext.latest(src, 1);
+                let _ = ext.latest_coro(src, 1);
+
+                captured_any = true;
             }
-            
-            // 9. Latest
-            let _ = ext.latest(src, 1);
-            let _ = ext.latest_coro(src, 1);
-            
-            captured_any = true;
-        }
-        
-        // Save captures to fixtures
-        let caps = captures.lock().unwrap();
-        save_fixtures(&caps, &out_dir_str, false);
-        
-        let capture_count = caps.len();
-        let duration = start.elapsed().as_secs();
-        
-        println!("  ✓ {} ({}s, {} responses)", stem, duration, capture_count);
-        
-        Ok(CaptureResult {
-            apk: apk.clone(),
-            stem,
-            success: true,
-            blocked: false,
-            duration_secs: duration,
-            capture_count,
-            error: None,
-        })
-    }).await??;
-    
+
+            // Save captures to fixtures
+            let caps = captures.lock().unwrap();
+            save_fixtures(&caps, &out_dir_str, false);
+
+            let capture_count = caps.len();
+            let duration = start.elapsed().as_secs();
+
+            println!("  ✓ {} ({}s, {} responses)", stem, duration, capture_count);
+
+            Ok(CaptureResult {
+                apk: apk.clone(),
+                stem,
+                success: true,
+                blocked: false,
+                duration_secs: duration,
+                capture_count,
+                error: None,
+            })
+        },
+    )
+    .await??;
+
     Ok(result)
 }
 
@@ -425,20 +519,22 @@ async fn run_capture_parallel(
     let semaphore = Arc::new(Semaphore::new(jobs));
     let mut set = JoinSet::new();
     let _timeout = Duration::from_secs(timeout_secs); // timeout handled in blocking task
-    
+
     for apk in apks {
         let sem = semaphore.clone();
         let apk = apk.clone();
         set.spawn(capture_one(sem, apk, _timeout, verbose, force));
     }
-    
+
     let mut results = Vec::new();
     let mut failed = 0;
-    
+
     while let Some(res) = set.join_next().await {
         match res {
             Ok(Ok(r)) => {
-                if !r.success { failed += 1; }
+                if !r.success {
+                    failed += 1;
+                }
                 results.push(r);
             }
             Ok(Err(e)) => {
@@ -451,15 +547,15 @@ async fn run_capture_parallel(
             }
         }
     }
-    
+
     // Sort by stem for consistent output
     results.sort_by(|a, b| a.stem.cmp(&b.stem));
-    
+
     // Categorize capture errors
     let mut error_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut failed_extensions: Vec<&CaptureResult> = Vec::new();
     let mut blocked_extensions: Vec<&CaptureResult> = Vec::new();
-    
+
     for r in &results {
         if r.blocked {
             blocked_extensions.push(r);
@@ -470,34 +566,38 @@ async fn run_capture_parallel(
             *error_counts.entry(category).or_default() += 1;
         }
     }
-    
+
     println!("\n=== CAPTURE SUMMARY ===");
     println!("Total: {} extensions", results.len());
     println!("  ✓ Captured:      {}", results.len() - failed);
     println!("  ✗ Failed:        {}", failed);
     println!("  ⚠ WAF Blocked:   {}", blocked_extensions.len());
-    
+
     if !error_counts.is_empty() {
         println!("\nFailure breakdown:");
         for (cat, count) in error_counts.iter().rev() {
             println!("  {:>4}  {}", count, cat);
         }
     }
-    
+
     if !blocked_extensions.is_empty() {
         println!("\nWAF Blocked extensions:");
         for r in &blocked_extensions {
             println!("  - {} ({} responses)", r.stem, r.capture_count);
         }
     }
-    
+
     if !failed_extensions.is_empty() {
         println!("\nFailed extensions:");
         for r in &failed_extensions {
-            println!("  - {}: {}", r.stem, r.error.as_deref().unwrap_or("unknown"));
+            println!(
+                "  - {}: {}",
+                r.stem,
+                r.error.as_deref().unwrap_or("unknown")
+            );
         }
     }
-    
+
     if failed > 0 {
         std::process::exit(1);
     }
@@ -505,14 +605,11 @@ async fn run_capture_parallel(
 }
 
 /// Runs replay test for a single APK IN-PROCESS (no cargo subprocess)
-async fn replay_one(
-    apk: &Path,
-    verbose: bool,
-) -> Result<ReplayResult, Box<dyn std::error::Error>> {
+async fn replay_one(apk: &Path, verbose: bool) -> Result<ReplayResult, Box<dyn std::error::Error>> {
     let stem = apk_stem(apk);
     let fixture_dir = fixture_dir(apk);
     let manifest = fixture_dir.join("manifest.txt");
-    
+
     if !manifest.exists() {
         return Ok(ReplayResult {
             apk: apk.to_path_buf(),
@@ -523,10 +620,10 @@ async fn replay_one(
             sources_passed: 0,
         });
     }
-    
+
     println!("[{}] Running replay tests...", stem);
     let start = Instant::now();
-    
+
     // Load fixtures
     let text = fs::read_to_string(&manifest)?;
     let mut map = BTreeMap::new();
@@ -543,7 +640,7 @@ async fn replay_one(
         let Ok(code) = code.parse() else { continue };
         map.insert(url.to_string(), (code, raw));
     }
-    
+
     // Open APK and set up HTTP replay
     let mut ext = Keiyoushi::open(apk.to_str().unwrap())?;
     ext.set_http_rc(Rc::new(move |req: &HttpData| {
@@ -558,17 +655,21 @@ async fn replay_one(
             HttpResp::ok("<html></html>")
         }
     }));
-    
+
     // Grant permissions
-    ext.ctx().grant(permission::Permission::Network(permission::NetworkPermission::Any));
-    ext.ctx().grant(permission::Permission::Filesystem(permission::FilesystemPermission::Any));
-    
+    ext.ctx().grant(permission::Permission::Network(
+        permission::NetworkPermission::Any,
+    ));
+    ext.ctx().grant(permission::Permission::Filesystem(
+        permission::FilesystemPermission::Any,
+    ));
+
     // Get all sources
     let sources = ext.sources()?;
-    
+
     let mut passed = 0;
     let mut tested = 0;
-    
+
     for src in &sources {
         tested += 1;
         // Test basic operations that don't need manga data
@@ -577,26 +678,36 @@ async fn replay_one(
             passed += 1;
         }
     }
-    
+
     let duration = start.elapsed().as_secs();
     let success = tested > 0 && passed == tested;
-    
+
     let stem_clone = stem.clone();
     let result = ReplayResult {
         apk: apk.to_path_buf(),
         stem,
         success,
-        error: if success { None } else { Some("Some sources failed".into()) },
+        error: if success {
+            None
+        } else {
+            Some("Some sources failed".into())
+        },
         sources_tested: tested,
         sources_passed: passed,
     };
-    
+
     if success {
-        println!("  ✓ {} ({}s, {}/{} passed)", stem_clone, duration, passed, tested);
+        println!(
+            "  ✓ {} ({}s, {}/{} passed)",
+            stem_clone, duration, passed, tested
+        );
     } else {
-        println!("  ✗ {} ({}s, {}/{} passed)", stem_clone, duration, passed, tested);
+        println!(
+            "  ✗ {} ({}s, {}/{} passed)",
+            stem_clone, duration, passed, tested
+        );
     }
-    
+
     Ok(result)
 }
 
@@ -613,7 +724,7 @@ async fn test_basic_operations(
             eprintln!("    ✗ filters failed: {}", ext.describe_error(e));
         }
     }
-    
+
     // Test popular
     let popular_result = ext.popular(src, 1);
     let popular_ok = popular_result.is_ok();
@@ -622,10 +733,16 @@ async fn test_basic_operations(
             eprintln!("    ✗ popular failed: {}", ext.describe_error(e));
         }
     }
-    
+
     // Test search
     let filters = filters_result.unwrap_or_default();
-    let states: Vec<FilterState> = filters.iter().map(|f| FilterState { name: f.name.clone(), state: f.state }).collect();
+    let states: Vec<FilterState> = filters
+        .iter()
+        .map(|f| FilterState {
+            name: f.name.clone(),
+            state: f.state,
+        })
+        .collect();
     let search_result = ext.search(src, 1, "one piece", &states);
     let search_ok = search_result.is_ok();
     if verbose && !search_ok {
@@ -633,7 +750,7 @@ async fn test_basic_operations(
             eprintln!("    ✗ search failed: {}", ext.describe_error(e));
         }
     }
-    
+
     filters_ok && popular_ok && search_ok
 }
 
@@ -656,12 +773,14 @@ async fn run_replay_in_process(
     let mut failed = 0;
     let mut total_tested = 0;
     let mut total_passed = 0;
-    
+
     // Run sequentially (fast, no subprocess overhead)
     for apk in apks {
         match replay_one(apk, verbose).await {
             Ok(r) => {
-                if !r.success { failed += 1; }
+                if !r.success {
+                    failed += 1;
+                }
                 total_tested += r.sources_tested;
                 total_passed += r.sources_passed;
                 results.push(r);
@@ -679,12 +798,12 @@ async fn run_replay_in_process(
             }
         }
     }
-    
+
     // Categorize replay errors
     let mut op_failures: BTreeMap<String, usize> = BTreeMap::new();
     let mut failed_extensions: Vec<&ReplayResult> = Vec::new();
     let mut no_fixture_extensions: Vec<&ReplayResult> = Vec::new();
-    
+
     for r in &results {
         if r.sources_tested == 0 && !r.success {
             no_fixture_extensions.push(r);
@@ -695,40 +814,52 @@ async fn run_replay_in_process(
             // Categorize by which operations failed
             if r.sources_passed < r.sources_tested {
                 let failed_ops = r.sources_tested - r.sources_passed;
-                *op_failures.entry(format!("{} sources with partial failure", failed_ops)).or_default() += 1;
+                *op_failures
+                    .entry(format!("{} sources with partial failure", failed_ops))
+                    .or_default() += 1;
             }
         }
     }
-    
+
     println!("\n=== REPLAY SUMMARY ===");
     println!("Total: {} extensions", results.len());
-    println!("  ✓ Fully passed:  {}", results.len() - failed - no_fixture_extensions.len());
+    println!(
+        "  ✓ Fully passed:  {}",
+        results.len() - failed - no_fixture_extensions.len()
+    );
     println!("  ⚠ Partial pass:  {}", failed_extensions.len());
     println!("  ✗ No fixtures:   {}", no_fixture_extensions.len());
     println!("  Sources tested:  {}", total_tested);
     println!("  Sources passed:  {}", total_passed);
-    
+
     if !op_failures.is_empty() {
         println!("\nPartial failure breakdown:");
         for (cat, count) in op_failures.iter().rev() {
             println!("  {:>4}  {}", count, cat);
         }
     }
-    
+
     if !no_fixture_extensions.is_empty() {
         println!("\nExtensions with no fixtures (skipped):");
         for r in &no_fixture_extensions {
-            println!("  - {}: {}", r.stem, r.error.as_deref().unwrap_or("unknown"));
+            println!(
+                "  - {}: {}",
+                r.stem,
+                r.error.as_deref().unwrap_or("unknown")
+            );
         }
     }
-    
+
     if !failed_extensions.is_empty() {
         println!("\nPartially failed extensions:");
         for r in &failed_extensions {
-            println!("  - {} ({}/{} sources passed)", r.stem, r.sources_passed, r.sources_tested);
+            println!(
+                "  - {} ({}/{} sources passed)",
+                r.stem, r.sources_passed, r.sources_tested
+            );
         }
     }
-    
+
     if failed > 0 {
         std::process::exit(1);
     }
@@ -738,21 +869,40 @@ async fn run_replay_in_process(
 // Error categorization functions
 fn categorize_capture_error(err: &str) -> String {
     let lower = err.to_lowercase();
-    if lower.contains("wa") && lower.contains("blocked") || lower.contains("ddos-guard") || lower.contains("cloudflare") || lower.contains("challenge") {
+    if lower.contains("wa") && lower.contains("blocked")
+        || lower.contains("ddos-guard")
+        || lower.contains("cloudflare")
+        || lower.contains("challenge")
+    {
         "WAF/DDoS-Guard block".to_string()
     } else if lower.contains("timeout") || lower.contains("timed out") {
         "Timeout".to_string()
-    } else if lower.contains("connection refused") || lower.contains("connection reset") || lower.contains("dns") || lower.contains("resolve") {
+    } else if lower.contains("connection refused")
+        || lower.contains("connection reset")
+        || lower.contains("dns")
+        || lower.contains("resolve")
+    {
         "Network/Connectivity".to_string()
-    } else if lower.contains("permission") || lower.contains("denied") || lower.contains("forbidden") || lower.contains("403") {
+    } else if lower.contains("permission")
+        || lower.contains("denied")
+        || lower.contains("forbidden")
+        || lower.contains("403")
+    {
         "Permission/403".to_string()
     } else if lower.contains("404") || lower.contains("not found") {
         "404 Not Found".to_string()
-    } else if lower.contains("500") || lower.contains("502") || lower.contains("503") || lower.contains("504") {
+    } else if lower.contains("500")
+        || lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("504")
+    {
         "Server Error (5xx)".to_string()
     } else if lower.contains("panicked") || lower.contains("panic") {
         "Panic/Crash".to_string()
-    } else if lower.contains("resolution") || lower.contains("class not found") || lower.contains("method not found") {
+    } else if lower.contains("resolution")
+        || lower.contains("class not found")
+        || lower.contains("method not found")
+    {
         "VM Resolution".to_string()
     } else if lower.contains("unsupported") || lower.contains("unimplemented") {
         "Unimplemented".to_string()
@@ -769,12 +919,16 @@ fn categorize_capture_error(err: &str) -> String {
     }
 }
 /// Saves captured HTTP responses to fixture directory
-fn save_fixtures(caps: &[(String, String, Vec<(String, String)>, Option<String>)], out_dir: &str, blocked: bool) {
+fn save_fixtures(
+    caps: &[(String, String, Vec<(String, String)>, Option<String>, i32)],
+    out_dir: &str,
+    blocked: bool,
+) {
     let _ = std::fs::create_dir_all(out_dir);
     let mut manifest = String::new();
     let mut seen = std::collections::HashSet::new();
     let mut n = 0usize;
-    for (method, url, headers, body) in caps {
+    for (method, url, headers, body, code) in caps {
         if !seen.insert((method.clone(), url.clone())) {
             continue;
         }
@@ -792,7 +946,7 @@ fn save_fixtures(caps: &[(String, String, Vec<(String, String)>, Option<String>)
         let fname: String = format!("{n:03}-{slug}").chars().take(100).collect();
         let body_bytes = body.as_deref().unwrap_or("").as_bytes();
         let _ = std::fs::write(format!("{out_dir}/{fname}"), body_bytes);
-        manifest.push_str(&format!("200\t{fname}\t{method}\t{url}\n"));
+        manifest.push_str(&format!("{code}\t{fname}\t{method}\t{url}\n"));
         n += 1;
     }
     let _ = std::fs::write(format!("{out_dir}/manifest.txt"), manifest);
