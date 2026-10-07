@@ -1,146 +1,221 @@
-# ACTIVEGOAL.md - Active Project Plan
+# ACTIVE GOAL: Fix Remaining kotlinx.serialization & Coroutine Failures
 
-## Current State (Commit `9a4a23a`)
-
-| Metric | Value |
-|--------|-------|
-| Extensions Tested | 1,414 |
-| Total Sources | 2,138 |
-| **Extensions Fully Passing** | **599 (42.4%)** |
-| Operations Success Rate | **84.6%** |
+**Last Updated:** 2026-10-07
+**Status:** In Progress - Core coroutines working (~40% pass), kotlinx.serialization incomplete
 
 ---
 
-## Current Blockers
+## 🎯 Current Status Summary
 
-| Blocker | Extensions | % of Failed | Primary Cause |
-|---------|------------|-------------|---------------|
-| **NPE** | **448** | **35.9%** | RxJava/kotlinx.coroutines missing shims (coroutine path) |
-| **Resolution** | 182 | 14.6% | Missing Android/Kotlin classes (PreferenceManager, Build$VERSION, ZoneOffset, kotlinx.random.Random$Default, etc.) |
-| **Other** | 131 | 10.5% | GraphQL parsing, legacy request methods, etc. |
-| **legacy_request** | 47 | 3.8% | Missing legacy HttpSource request methods |
-| **UnsupportedOp** | 7 | 0.6% | UnsupportedOperationException |
+| Category | Pass Rate | Status |
+|----------|-----------|--------|
+| Core operations (filters, popular, search) | 97-98% | ✅ Done |
+| popular_coro | ~40% | 🟡 Partial |
+| search_coro | ~44% | 🟡 Partial |
+| latest_coro | ~32% | 🟡 Partial |
+| manga_details/chapters/pages | ~0% (skipped) | ❌ Blocked |
 
----
-
-## ✅ P0 COMPLETED: RxJava Shim
-
-| Component | Status | Methods Added |
-|-----------|--------|---------------|
-| Observable | ✅ | doOnError, doOnSubscribe, doOnUnsubscribe, doOnEach, subscribeOn, observeOn, cache, blockingSingle, blockingLast, blockingGet, blockingForEach |
-| Single | ✅ | just, error, fromObservable, map, flatMap, subscribe, toObservable, toBlocking, blockingGet |
-| Schedulers | ✅ | computation(), trampoline(), newThread(), immediate(), io() |
-| Subscription | ✅ | unsubscribe, isUnsubscribed |
-| Observable.single() | ✅ | Returns Single with single item |
-| Observable.toBlocking() | ✅ | Returns BlockingObservable |
-| BlockingObservable | ✅ | blockingFirst, blockingLast, blockingGet, blockingForEach |
-| Schedulers | ✅ | computation(), trampoline(), newThread(), immediate(), io() |
-
-**Result:** NPEs reduced from 5,687 → 1,617 (71% reduction), Coroutine versions now pass
+**Main Blocker Fixed:** AppInfo.INSTANCE resolution error - all 1409 extensions now load.
 
 ---
 
-## ✅ P0 COMPLETED: kotlinx.coroutines Shim (Phase 1-2)
+## 📋 Remaining Tasks
 
-| Component | Status | Methods Added |
-|-----------|--------|---------------|
-| Dispatchers | ✅ | Default, Unconfined, Main.immediate, IO, Computation, Trampoline, NewThread, Immediate |
-| Job | ✅ | join, isCancelled, isCompleted, cancel, children |
-| Deferred | ✅ | await |
-| CoroutineScope | ✅ | launch, async, coroutineScope, supervisorScope |
-| withContext | ✅ |  |
-| withTimeout / withTimeoutOrNull | ✅ |  |
-| SupervisorJob / SupervisorScope | ✅ |  |
-| runBlocking | ✅ | Top-level and default |
-| withTimeout / withTimeoutOrNull | ✅ |  |
-| Missing shim classes | ✅ | Deferred, Dispatchers, CoroutineStart, Dispatchers lazy instance |
+### 1. kotlinx.serialization Support (Priority: HIGH)
 
-**Result:** NPEs reduced from 5,687 → 1,617 (71% reduction), Coroutine versions now pass
+#### Missing Classes & Methods
 
----
+| Class/Interface | Missing Methods | Impact |
+|-----------------|-----------------|--------|
+| `kotlinx.serialization.json.JsonKt` | `Json()` extension function | Coroutine source loading fails |
+| `kotlinx.serialization.json.Json` | `Default` static field, `Json()` method | Serialization initialization |
+| `kotlinx.serialization.encoding.Decoder` | `decodeSerializableElement()`, `decodeSerializableValue()` | Deserialization fails |
+| `kotlinx.serialization.encoding.Encoder` | `encodeSerializableElement()`, `encodeSerializableValue()` | Serialization fails |
+| `kotlinx.serialization.json.JsonDecoder` | Full implementation | JSON parsing fails |
+| `kotlinx.serialization.json.JsonEncoder` | Full implementation | JSON encoding fails |
+| `kotlinx.serialization.json.JsonObjectSerializer` | `deserialize()`, `serialize()` | Object handling fails |
+| `kotlinx.serialization.json.JsonArraySerializer` | `deserialize()`, `serialize()` | Array handling fails |
+| `kotlinx.serialization.internal.LinkedHashMapSerializer` | `deserialize()`, `serialize()` | Map handling fails |
+| `kotlinx.serialization.internal.ReferenceArraySerializer` | `deserialize()` | Array handling fails |
+| `kotlinx.serialization.internal.ObjectSerializer` | `deserialize()`, `serialize()` | Object handling fails |
+| `kotlinx.serialization.internal.EnumSerializer` | `deserialize()`, `serialize()` | Enum handling fails |
+| `kotlinx.serialization.internal.PolymorphicSerializer` | `deserialize()`, `serialize()` | Polymorphic types fail |
 
-## ✅ P0 COMPLETED: kotlinx.coroutines Mutex & MutexKt
-
-| Component | Status | Methods Added |
-|-----------|--------|---------------|
-| Mutex | ✅ | lock(suspend () -> T), tryLock(), unlock(), isLocked() |
-| MutexKt | ✅ | Mutex(), lock() static extension |
-
-**Result:** Mutex suspend lock now implemented with proper continuation handling
-
----
-
-## ✅ P0 COMPLETED: CoroutineScope/Job/Deferred Instance Methods
-
-| Component | Status | Methods Added |
-|-----------|--------|---------------|
-| CoroutineScope | ✅ | launch, async, coroutineScope, supervisorScope, withContext |
-| Job | ✅ | join, cancel, children, isCancelled, isCompleted |
-| Deferred | ✅ | await() |
-
-**Result:** CoroutineScope instance methods working, Job/Deferred methods implemented, Coroutine versions now pass
-
----
-
-## 📋 P1: Fix Resolution Errors (182 extensions)
-
-| Missing Class | Priority | Extensions | Status |
-|--------------|----------|------------|--------|
-| `kotlinx.random.Random$Default` | High | 40 | 🔄 |
-| `androidx.preference.PreferenceManager` | High | 30 | 🔄 |
-| `android.os.Build$VERSION` | Medium | 20 | 🔄 |
-| `java.time.ZoneOffset` | Medium | 15 | 🔄 |
-| Cyclic class hierarchy | High | 45 | 🔄 |
-
----
-
-## 📋 P2: GraphQL Empty Response Handling
-
-| Issue | Extensions Affected |
-|-------|---------------------|
-| Empty handler returns REST format instead of GraphQL | ~100 |
-
----
-
-## Implementation Order
-
+#### Error Examples from Test Runs
 ```
-Week 1: Resolution fixes (Random$Default, PreferenceManager, Build$VERSION, ZoneOffset, cyclic hierarchy)
-Week 2: GraphQL empty response handling
-Week 3: Full regression test (1,414 extensions)
+✗ sources(): resolution error: no method Json (Lkotlinx/serialization/json/Json;Lkotlin/jvm/functions/Function1;)Lkotlinx/serialization/json/Json; found (on Lkotlinx/serialization/json/JsonKt; starting from Ljava/lang/Object;)
+✗ popular_coro: resolution error: class not found: Lkotlinx/serialization/encoding/AbstractDecoder;
+✗ search_coro: resolution error: no method getVersionName ()Ljava/lang/String; found (on Lkotlinx/serialization/json/Json; starting from Ljava/lang/Object;)
 ```
 
 ---
 
-## Success Criteria
+### 2. Kotlin Coroutine Enhancements (Priority: MEDIUM)
 
-| Milestone | Target |
-|-----------|--------|
-| Resolution Fixed | 182 extensions unblocked |
-| Overall success rate | >95% (from 84.6%) |
-| Extensions passing | >500 (from 599) |
-| All tests pass | ✅ |
+#### Missing Coroutine Classes & Methods
+
+| Class/Interface | Missing Methods | Impact |
+|-----------------|-----------------|--------|
+| `kotlinx.coroutines.Job` | `isActive` ✓, `invokeOnCompletion`, `getChildren`, `ensureActive` | Coroutine lifecycle |
+| `kotlinx.coroutines.CoroutineScope` | `coroutineContext`, `isActive` ✓ | Scope management |
+| `kotlinx.coroutines.CoroutineContext` | `get`, `fold`, `minusKey`, `plus` | Context propagation |
+| `kotlinx.coroutines.CoroutineDispatcher` | `dispatch`, `isDispatchNeeded` | Dispatch management |
+| `kotlinx.coroutines.CancellableContinuation` | `resume`, `resumeWithException`, `invokeOnCancellation` | Suspension handling |
+| `kotlinx.coroutines.ContinuationInterceptor` | `interceptContinuation`, `releaseInterceptedContinuation` | Interception |
+| `kotlinx.coroutines.Deferred` | `await`, `awaitAll` | Async results |
+| `kotlinx.coroutines.CompletableDeferred` | `complete`, `completeExceptionally` | Completion |
+| `kotlinx.coroutines.MainCoroutineDispatcher` | `getImmediate` ✓ | Main thread |
+| `kotlinx.coroutines.SupervisorJob` | `supervisorScope` | Error isolation |
+| `kotlinx.coroutines.DelayKt` | `delay` | Time delays |
+| `kotlinx.coroutines.TimeoutKt` | `withTimeout`, `withTimeoutOrNull` | Timeouts |
+
+#### Error Examples
+```
+✗ latest_coro: resolution error: no method isActive ()Z found (on Lkotlinx/coroutines/Job; starting from Ljava/lang/Object;)
+✗ popular_coro: resolution error: class not found: Lkotlinx/serialization/encoding/AbstractDecoder;
+✗ search_coro: resolution error: no method getVersionName ()Ljava/lang/String; found (on Lkotlinx/serialization/json/Json; starting from Ljava/lang/Object;)
+```
 
 ---
 
-## Commands
+### 3. Kotlin Standard Library Gaps (Priority: MEDIUM)
 
+| Class | Missing Methods | Impact |
+|-------|-----------------|--------|
+| `kotlin.random.Random.Default` | Static field | Random number generation |
+| `kotlin.time.temporal.ChronoField` | Class not found | Time operations |
+| `kotlin.ranges.IntIterator` | ✅ Added | ✅ Fixed - iterator() works |
+| `kotlin.collections.ArraysKt` | `iterator()` on IntProgression | ⚠️ Fixed via IntProgression shim |
+| `kotlin.ranges.RangesKt` | `downTo`, `step`, `reversed` | ✅ Partially done |
+
+---
+
+### 4. kotlinx.html / jsoup Support (Priority: LOW)
+
+| Missing Class | Methods Needed |
+|---------------|----------------|
+| `org.jsoup.Jsoup` | `parse()`, `connect()` |
+| `org.jsoup.nodes.Document` | `select()`, `text()`, `html()` |
+| `org.jsoup.nodes.Element` | `select()`, `attr()`, `text()` |
+| `org.jsoup.select.Elements` | Iterator, get(), size() |
+
+---
+
+### 5. Android Framework Stubs (Priority: LOW)
+
+| Missing Class | Methods Needed |
+|---------------|----------------|
+| `android.app.Application$ActivityLifecycleCallbacks` | Interface methods |
+| `android.content.pm.ApplicationInfo` | Fields/methods |
+| `android.util.Base64$Decoder/Encoder` | Decode/encode |
+| `android.util.JsonReader` | Parsing methods |
+| `androidx.preference.PreferenceScreen` | UI preferences |
+
+---
+
+## 🛠️ Implementation Priority Order
+
+### Phase 1: Critical kotlinx.serialization (Week 1-2)
+- [ ] Implement `JsonKt.Json()` extension function
+- [ ] Add `Json.Default` static field with `serialize`/`deserialize`
+- [ ] Implement `Decoder.decodeSerializableValue()` / `Encoder.encodeSerializableValue()`
+- [ ] Implement `JsonDecoder` / `JsonEncoder` basics
+- [ ] Add `JsonObjectSerializer` / `JsonArraySerializer` deserialize/serialize
+- [ ] Add `AbstractDecoder` / `Encoder` interfaces
+
+### Phase 2: Coroutine Infrastructure (Week 2-3)
+- [ ] Implement `Job.invokeOnCompletion`, `getChildren`, `ensureActive`
+- [ ] Implement `CoroutineScope.coroutineContext`, `CoroutineContext` operations
+- [ ] Add `CompletableDeferred.complete/completeExceptionally`
+- [ ] Add `SupervisorJob` / `supervisorScope`
+- [ ] Add `DelayKt.delay`, `TimeoutKt.withTimeout`
+
+### Phase 3: kotlinx.serialization Deep Support (Week 3-4)
+- [ ] `JsonDecoder` / `JsonEncoder` full implementation
+- [ ] `JsonObjectSerializer` / `JsonArraySerializer` full impl
+- [ ] `LinkedHashMapSerializer` / `ReferenceArraySerializer` / `ObjectSerializer`
+- [ ] `EnumSerializer` / `PolymorphicSerializer` full impl
+- [ ] `Json$Default` full serialize/deserialize
+
+### Phase 4: Kotlin Stdlib & Android Stubs (Week 4)
+- [ ] `kotlin.random.Random.Default`
+- [ ] `kotlin.time.temporal.ChronoField`
+- [ ] Android `Application$ActivityLifecycleCallbacks`
+- [ ] `androidx.preference` stubs
+
+---
+
+## 🧪 Test Strategy
+
+### Quick Validation Commands
 ```bash
-# Quick test single extension
-DEXVM_LIVE=0 cargo run --features keiyoushi --bin exttest -- --http empty --apk "fixtures/keiyoushi_all/tachiyomi-all.xcomic-v1.6.8.apk"
+# Test single extension (fast)
+DEXVM_LIVE=1 cargo run --features keiyoushi --bin exttest -- --apk fixtures/keiyoushi_all/tachiyomi-en.weebcentral-v1.6.25.apk --http replay
 
-# Full regression
-cargo run --features keiyoushi --bin exttest -- --http empty --json report.json
+# Test coroutine-specific
+DEXVM_LIVE=1 cargo run --features keiyoushi --bin exttest -- --apk fixtures/keiyoushi_all/tachiyomi-en.weebcentral-v1.6.25.apk --http replay 2>&1 | grep -E "popular_coro|search_coro|latest_coro"
 
-# Run unit tests
-cargo test --features keiyoushi
+# Full suite (slow, may stack overflow)
+DEXVM_LIVE=1 cargo run --features keiyoushi --bin exttest -- --apk fixtures/keiyoushi_all/ --http replay
+```
+
+### Success Criteria
+- [ ] `popular_coro` > 80% pass rate
+- [ ] `search_coro` > 80% pass rate
+- [ ] `latest_coro` > 80% pass rate
+- [ ] Zero `resolution error.*kotlinx` errors
+- [ ] Zero `resolution error.*kotlin/coroutines` errors
+- [ ] `manga_details`, `chapters`, `pages` operations working
+
+---
+
+## 📁 Files to Modify
+
+### Core Serialization
+- `src/vm/native/serialization.rs` - Main serialization implementation
+- `src/vm/class.rs` - Shim class definitions
+- `src/vm/native/kotlin/ranges.rs` - IntIterator ✅ Done
+
+### Coroutine Infrastructure
+- `src/vm/native/kotlinx/coroutines.rs` - Coroutine primitives
+- `src/vm/native/kotlin/statics.rs` - Lazy static initializers
+- `src/vm/native/kotlin/mod.rs` - Exports
+
+### Shim Classes
+- `src/vm/class.rs` - Shim class definitions (559 classes)
+
+### Test Infrastructure
+- `src/bin/exttest.rs` - Extension testing
+- `src/bin/exttest_live.rs` - Live capture/replay
+
+---
+
+## 📊 Progress Tracking
+
+```
+Phase 1: Critical kotlinx.serialization ████████░░ 40%
+Phase 2: Coroutine Infrastructure ████████░░ 40%
+Phase 3: Deep kotlinx.serialization ░░░░░░░░░░ 0%
+Phase 4: Stdlib/Android Stubs ░░░░░░░░░░ 0%
+
+Overall: ████░░░░░░░░ 30%
 ```
 
 ---
 
-## Notes
+## 🚀 Quick Wins (Can Do Today)
 
-- Vietnamese (vi) and Chinese (zh) extensions already pass (61% pass rate) - they use simple REST APIs
-- Remaining failures are primarily GraphQL + coroutine-heavy extensions
-- Mutex suspend lock is now implemented and working
-- Keep ACTIVEGOAL.md updated as progress is made
+1. **Add `JsonKt.Json()`** - Single method, fixes source loading
+2. **Add `Json.Default`** - Static field with serialize/deserialize
+3. **`Decoder.decodeSerializableValue()`** - One method, fixes many deserializers
+4. **`Encoder.encodeSerializableValue()`** - One method, fixes many serializers
+5. **`Job.invokeOnCompletion`** - Simple callback registration
+
+---
+
+## 📝 Notes
+
+- Stack overflow issues may require increasing stack size or fixing recursive calls in serialization
+- Many extensions use HTML (jsoup) not JSON APIs → `manga_details/chapters/pages` will remain skipped until HTML parsing works
+- Coroutine variants fail mostly due to missing kotlinx.serialization, not coroutine logic itself
+- The `JsonKt.Json()` method is the single biggest blocker for coroutine source loading

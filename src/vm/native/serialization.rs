@@ -1796,6 +1796,37 @@ fn json_builder_set(_vm: &mut Vm, _args: &[JValue]) -> R {
     Ok(JValue::Null)
 }
 
+/// `JsonKt.Json(json, block)` — creates a new Json instance with the builder block applied.
+fn json_kt_json(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Json receiver (can be null for default), args[1] = builder block
+    let mut module = None;
+    let builder = alloc(
+        vm,
+        "Lkotlinx/serialization/json/JsonBuilder;",
+        Native::Opaque,
+    )?;
+    invoke_function1(vm, args[1], builder)?;
+    if let Some(Native::SerializersModule { polys }) = payload(vm, builder) {
+        let polys = polys.clone();
+        if !polys.is_empty() {
+            module = Some(alloc(
+                vm,
+                "Lkotlinx/serialization/modules/SerializersModule;",
+                Native::SerializersModule { polys },
+            )?);
+        }
+    }
+    let this = if args[0].is_null_ref() {
+        alloc(vm, "Lkotlinx/serialization/json/Json;", Native::Opaque)?
+    } else {
+        args[0]
+    };
+    if let (Some(module), JValue::Obj(o)) = (module, args[0]) {
+        vm.arena.objects[o as usize].native = Some(Native::JsonWithModule { module });
+    }
+    Ok(args[0])
+}
+
 /// `JsonKt.Json$default(json, block, mask, marker)` — runs the builder block
 /// over a fresh `JsonBuilder` and returns the original Json.
 fn json_builder_default(vm: &mut Vm, args: &[JValue]) -> R {
@@ -2962,6 +2993,7 @@ pub(crate) const SERIALIZATION_TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/serialization/json/JsonArrayBuilder;", "add", "(Lkotlinx/serialization/json/JsonElement;)Z", true, json_array_builder_add),
     ne!("Lkotlinx/serialization/protobuf/ProtoNumber;", "number", "()I", true, proto_number_number),
     ne!("Lkotlinx/serialization/internal/ReferenceArraySerializer;", "<init>", "(Lkotlin/reflect/KClass;Lkotlinx/serialization/KSerializer;)V", true, serializer_opaque_init),
+    ne!("Lkotlinx/serialization/json/JsonKt;", "Json", "(Lkotlinx/serialization/json/Json;Lkotlin/jvm/functions/Function1;)Lkotlinx/serialization/json/Json;", false, json_kt_json),
     ne!("Lkotlinx/serialization/json/JsonKt;", "Json$default", "(Lkotlinx/serialization/json/Json;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lkotlinx/serialization/json/Json;", false, json_builder_default),
     ne!("Lkotlinx/serialization/json/JsonBuilder;", "setIgnoreUnknownKeys", "(Z)V", true, json_builder_set),
     ne!("Lkotlinx/serialization/json/JsonBuilder;", "setLenient", "(Z)V", true, json_builder_set),
@@ -3042,6 +3074,7 @@ pub(crate) const SERIALIZATION_TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/serialization/json/Json$Default;", "serialize", "(Lkotlinx/serialization/SerializationStrategy;Ljava/lang/Object;)Lkotlinx/serialization/json/JsonElement;", true, json_default_serialize),
     ne!("Lkotlinx/serialization/json/Json$Default;", "deserialize", "(Lkotlinx/serialization/DeserializationStrategy;Lkotlinx/serialization/json/JsonElement;)Ljava/lang/Object;", true, json_default_deserialize),
     ne!("Lkotlinx/serialization/json/Json$Default;", "getInstance", "()Lkotlinx/serialization/json/Json$Default;", true, json_default_get_instance),
+    ne!("Lkotlinx/serialization/json/Json$Default;", "Json", "(Lkotlin/jvm/functions/Function1;)Lkotlinx/serialization/json/Json;", true, json_default_json),
     // Decoder/Encoder fallback methods
     ne!("Lkotlinx/serialization/encoding/Decoder;", "deserialize", "()Ljava/lang/Object;", true, decoder_deserialize),
     ne!("Lkotlinx/serialization/encoding/Encoder;", "serialize", "(Ljava/lang/Object;)V", true, encoder_serialize),
@@ -3086,6 +3119,35 @@ pub(crate) fn json_default_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
 /// `Json$Default.getInstance()` — returns the singleton Json instance.
 pub(crate) fn json_default_get_instance(vm: &mut Vm, _args: &[JValue]) -> R {
     alloc(vm, "Lkotlinx/serialization/json/Json;", Native::Opaque)
+}
+
+/// `Json$Default.Json(block)` — creates a new Json instance with the builder block applied.
+pub(crate) fn json_default_json(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = receiver (Json$Default instance), args[1] = builder block
+    let mut module = None;
+    let builder = alloc(
+        vm,
+        "Lkotlinx/serialization/json/JsonBuilder;",
+        Native::Opaque,
+    )?;
+    invoke_function1(vm, args[1], builder)?;
+    if let Some(Native::SerializersModule { polys }) = payload(vm, builder) {
+        let polys = polys.clone();
+        if !polys.is_empty() {
+            module = Some(alloc(
+                vm,
+                "Lkotlinx/serialization/modules/SerializersModule;",
+                Native::SerializersModule { polys },
+            )?);
+        }
+    }
+    let this = alloc(vm, "Lkotlinx/serialization/json/Json;", Native::Opaque)?;
+    if let Some(module) = module {
+        if let JValue::Obj(o) = args[0] {
+            vm.arena.objects[o as usize].native = Some(Native::JsonWithModule { module });
+        }
+    }
+    Ok(args[0])
 }
 
 /// `UnknownFieldException.<init>(index)` — allocated but never thrown in the
