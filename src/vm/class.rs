@@ -2715,8 +2715,17 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlin/ranges/IntProgression;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "iterator",
+            "Lkotlin/ranges/IntIterator;",
+            ShimValue::Lazy(native::lazy_int_progression_iterator)
+        ),]
     ),
+    // Debug: check if this shim is registered
+    // The shim should have desc == "Lkotlin/ranges/IntProgression;"
+
+
     #[cfg(feature = "kotlin")]
     shim!(
         "Lkotlin/ranges/ClosedRange;",

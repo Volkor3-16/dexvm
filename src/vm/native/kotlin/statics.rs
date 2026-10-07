@@ -33,6 +33,15 @@ pub(crate) fn global_scope(vm: &mut Vm) -> JValue {
 pub(crate) fn lazy_dispatchers_instance(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lkotlinx/coroutines/Dispatchers;")
 }
+
+pub(crate) fn lazy_int_progression_iterator(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lkotlin/ranges/IntIterator;",
+        Native::Opaque,
+    )
+    .expect("alloc IntIterator")
+}
 pub(crate) fn result_companion(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lkotlin/Result$Companion;")
 }

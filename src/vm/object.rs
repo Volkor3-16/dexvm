@@ -251,6 +251,12 @@ pub enum Native {
     Mutex {
         locked: bool,
     },
+    /// kotlin.ranges.IntIterator for IntProgression.iterator()
+    IntIterator {
+        first: i32,
+        last: i32,
+        step: i32,
+    },
     /// java.time.LocalDate (days since epoch).
     LocalDay(u32),
     /// java.time.Instant / ZonedDateTime (epoch millis).
@@ -1194,6 +1200,7 @@ impl Native {
             | Native::Duration(_)
             | Native::IntRange(..)
             | Native::IntProgression(..)
+            | Native::IntIterator { .. }
             | Native::CharRange(..)
             | Native::LongRange(..)
             | Native::ArrayDesc(_)

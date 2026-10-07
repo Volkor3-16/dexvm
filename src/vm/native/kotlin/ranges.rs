@@ -176,6 +176,18 @@ pub(super) fn progression_get_step(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(JValue::Int(step))
 }
 
+/// `IntProgression.iterator()` — returns an iterator over the progression.
+pub(super) fn progression_iterator(vm: &mut Vm, args: &[JValue]) -> R {
+    let (first, last, step) = progression_bounds(vm, args[0])?;
+    let iter_class = vm.ensure_class_by_desc("Lkotlin/ranges/IntIterator;").map_err(nat_fatal)?;
+    let iter_obj = vm.arena.alloc(
+        iter_class,
+        Vec::new(),
+        Some(Native::IntIterator { first, last, step }),
+    );
+    Ok(JValue::Obj(iter_obj))
+}
+
 fn progression_bound_box(vm: &mut Vm, v: JValue, pick_last: bool) -> R {
     let (first, last, _) = progression_bounds(vm, v)?;
     boxed(
@@ -407,6 +419,13 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "()I",
         true,
         progression_get_step
+    ),
+    ne!(
+        "Lkotlin/ranges/IntProgression;",
+        "iterator",
+        "()Lkotlin/ranges/IntIterator;",
+        true,
+        progression_iterator
     ),
     ne!(
         "Lkotlin/ranges/IntProgression;",
