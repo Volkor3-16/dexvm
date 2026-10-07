@@ -336,6 +336,11 @@ pub(crate) fn coroutines_job_is_completed(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(JValue::Int(1))
 }
 
+pub(crate) fn coroutines_job_is_active(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Job receiver
+    Ok(JValue::Int(1))
+}
+
 pub(crate) fn coroutines_job_cancel(vm: &mut Vm, args: &[JValue]) -> R {
     // args[0] = Job receiver
     Ok(JValue::Null)
@@ -393,9 +398,19 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/AwaitKt;", "awaitAll", "(Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, deferred_await_all),
     ne!("Lkotlinx/coroutines/sync/MutexKt;", "Mutex$default", "(ZILjava/lang/Object;)Lkotlinx/coroutines/sync/Mutex;", false, mutex_default),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "()V", true, mutex_lock),
+    // Older Kotlin version signature for suspend lock on Mutex
     ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, mutex_suspend_lock),
+    // Newer Kotlin version signature (receiver as Object)
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "(Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, mutex_suspend_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "tryLock", "()Z", true, mutex_try_lock),
+    // Newer Kotlin version signature (receiver as Object)
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "tryLock", "(Ljava/lang/Object;)Z", true, mutex_try_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "unlock", "()V", true, mutex_unlock),
+    // Newer Kotlin version signature (receiver as Object)
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "unlock", "(Ljava/lang/Object;)V", true, mutex_unlock),
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "()Z", true, mutex_is_locked),
+    // Newer Kotlin version signature (receiver as Object)
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "(Ljava/lang/Object;)Z", true, mutex_is_locked),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "()Z", true, mutex_is_locked),
     ne!("Lkotlinx/coroutines/sync/MutexKt;", "lock", "(Lkotlinx/coroutines/sync/Mutex;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, mutex_kt_lock),
     ne!("Lkotlinx/coroutines/SupervisorKt;", "SupervisorJob$default", "(Lkotlinx/coroutines/Job;ILjava/lang/Object;)Lkotlinx/coroutines/CompletableJob;", false, coroutines_supervisor_job_default),
@@ -421,6 +436,7 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/Job;", "children", "()Ljava/util/List;", true, coroutines_job_children),
     ne!("Lkotlinx/coroutines/Job;", "isCancelled", "()Z", true, coroutines_job_is_cancelled),
     ne!("Lkotlinx/coroutines/Job;", "isCompleted", "()Z", true, coroutines_job_is_completed),
+    ne!("Lkotlinx/coroutines/Job;", "isActive", "()Z", true, coroutines_job_is_active),
 
     // Job instance methods on CoroutineScope
     ne!("Lkotlinx/coroutines/CoroutineScope;", "jobJoin", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, coroutines_job_join_instance),
