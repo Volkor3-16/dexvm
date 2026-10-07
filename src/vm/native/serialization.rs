@@ -2095,6 +2095,55 @@ fn primitive_serializer_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
     })
 }
 
+/// Decoder.deserialize() — fallback for generated serializers calling decoder.deserialize().
+/// Returns a default JsonVal::Null.
+pub(crate) fn decoder_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Decoder receiver (ignored), args[1] = return type hint (ignored)
+    Ok(JValue::Null)
+}
+
+/// Encoder.serialize(value) — fallback for generated serializers calling encoder.serialize().
+/// No-op implementation.
+pub(crate) fn encoder_serialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = Encoder receiver (ignored), args[1] = value to serialize (ignored)
+    Ok(JValue::Null)
+}
+
+/// ReferenceArraySerializer.deserialize(decoder) — decodes array elements.
+pub(crate) fn reference_array_serializer_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = serializer, args[1] = decoder
+    // Delegate to ArrayListSerializer logic
+    array_list_serializer_deserialize(vm, &[args[0], args[1]])
+}
+
+/// ObjectSerializer.deserialize(decoder) — decodes an object.
+pub(crate) fn object_serializer_deserialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = serializer, args[1] = decoder
+    // Delegate to run_serializer which handles JsonObject
+    run_serializer(vm, args[0], args[1], None)
+}
+
+/// ObjectSerializer.serialize(encoder, value) — encodes an object.
+pub(crate) fn object_serializer_serialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = serializer, args[1] = encoder, args[2] = value
+    invoke_serialize(vm, args[0], args[1], args[2])?;
+    Ok(JValue::Null)
+}
+
+/// EnumSerializer.serialize(encoder, value) — encodes an enum.
+pub(crate) fn enum_serializer_serialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = serializer, args[1] = encoder, args[2] = value
+    invoke_serialize(vm, args[0], args[1], args[2])?;
+    Ok(JValue::Null)
+}
+
+/// PolymorphicSerializer.serialize(encoder, value) — encodes a polymorphic value.
+pub(crate) fn polymorphic_serializer_serialize(vm: &mut Vm, args: &[JValue]) -> R {
+    // args[0] = serializer, args[1] = encoder, args[2] = value
+    invoke_serialize(vm, args[0], args[1], args[2])?;
+    Ok(JValue::Null)
+}
+
 /// `EnumSerializer.getDescriptor()` — the enum serial name.
 fn enum_serializer_descriptor(vm: &mut Vm, args: &[JValue]) -> R {
     let (names, _) = match payload(vm, args[0]) {
@@ -2993,7 +3042,19 @@ pub(crate) const SERIALIZATION_TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/serialization/json/Json$Default;", "serialize", "(Lkotlinx/serialization/SerializationStrategy;Ljava/lang/Object;)Lkotlinx/serialization/json/JsonElement;", true, json_default_serialize),
     ne!("Lkotlinx/serialization/json/Json$Default;", "deserialize", "(Lkotlinx/serialization/DeserializationStrategy;Lkotlinx/serialization/json/JsonElement;)Ljava/lang/Object;", true, json_default_deserialize),
     ne!("Lkotlinx/serialization/json/Json$Default;", "getInstance", "()Lkotlinx/serialization/json/Json$Default;", true, json_default_get_instance),
+    // Decoder/Encoder fallback methods
+    ne!("Lkotlinx/serialization/encoding/Decoder;", "deserialize", "()Ljava/lang/Object;", true, decoder_deserialize),
+    ne!("Lkotlinx/serialization/encoding/Encoder;", "serialize", "(Ljava/lang/Object;)V", true, encoder_serialize),
+    // Missing kotlinx.serialization serializer classes
+    ne!("Lkotlinx/serialization/internal/ReferenceArraySerializer;", "deserialize", "(Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;", true, reference_array_serializer_deserialize),
+    ne!("Lkotlinx/serialization/internal/ObjectSerializer;", "deserialize", "(Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;", true, object_serializer_deserialize),
+    ne!("Lkotlinx/serialization/internal/LinkedHashMapSerializer;", "deserialize", "(Lkotlinx/serialization/encoding/Decoder;)Ljava/lang/Object;", true, linked_hash_map_deserialize),
+    ne!("Lkotlinx/serialization/internal/ObjectSerializer;", "serialize", "(Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V", true, object_serializer_serialize),
+    ne!("Lkotlinx/serialization/internal/EnumSerializer;", "serialize", "(Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V", true, enum_serializer_serialize),
+    ne!("Lkotlinx/serialization/internal/PolymorphicSerializer;", "serialize", "(Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V", true, polymorphic_serializer_serialize),
 ];
+
+
 
 /// `Json$Default.serialize(strategy, obj)` — delegates to Json.encodeToJsonElement.
 pub(crate) fn json_default_serialize(vm: &mut Vm, args: &[JValue]) -> R {
