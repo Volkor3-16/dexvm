@@ -2724,8 +2724,6 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     ),
     // Debug: check if this shim is registered
     // The shim should have desc == "Lkotlin/ranges/IntProgression;"
-
-
     #[cfg(feature = "kotlin")]
     shim!(
         "Lkotlin/ranges/ClosedRange;",

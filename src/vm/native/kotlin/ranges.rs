@@ -179,7 +179,9 @@ pub(super) fn progression_get_step(vm: &mut Vm, args: &[JValue]) -> R {
 /// `IntProgression.iterator()` — returns an iterator over the progression.
 pub(super) fn progression_iterator(vm: &mut Vm, args: &[JValue]) -> R {
     let (first, last, step) = progression_bounds(vm, args[0])?;
-    let iter_class = vm.ensure_class_by_desc("Lkotlin/ranges/IntIterator;").map_err(nat_fatal)?;
+    let iter_class = vm
+        .ensure_class_by_desc("Lkotlin/ranges/IntIterator;")
+        .map_err(nat_fatal)?;
     let iter_obj = vm.arena.alloc(
         iter_class,
         Vec::new(),

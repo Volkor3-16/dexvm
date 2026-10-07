@@ -3087,8 +3087,6 @@ pub(crate) const SERIALIZATION_TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/serialization/internal/PolymorphicSerializer;", "serialize", "(Lkotlinx/serialization/encoding/Encoder;Ljava/lang/Object;)V", true, polymorphic_serializer_serialize),
 ];
 
-
-
 /// `Json$Default.serialize(strategy, obj)` — delegates to Json.encodeToJsonElement.
 pub(crate) fn json_default_serialize(vm: &mut Vm, args: &[JValue]) -> R {
     if args.len() < 3 {

@@ -296,7 +296,8 @@ async fn capture_one(
 
             ext.set_http_rc(Rc::new(move |req: &HttpData| {
                 // Make the actual HTTP request
-                let mut http_req = http_client.request(req.method.parse().unwrap_or(reqwest::Method::GET), &req.url);
+                let mut http_req = http_client
+                    .request(req.method.parse().unwrap_or(reqwest::Method::GET), &req.url);
                 for (k, v) in &req.headers {
                     http_req = http_req.header(k, v);
                 }

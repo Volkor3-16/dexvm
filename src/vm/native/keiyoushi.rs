@@ -297,10 +297,24 @@ fn http_source_fetch(
                 "mangaDetailsRequest" => http_source_manga_details_request(vm, &[request_args[0]])?,
                 "chapterListRequest" => http_source_chapter_list_request(vm, &[request_args[0]])?,
                 "pageListRequest" => http_source_page_list_request(vm, &[request_args[0]])?,
-                "popularMangaRequest" => http_source_popular_manga_request(vm, &request_args[..1.min(request_args.len())])?,
-                "searchMangaRequest" => http_source_search_manga_request(vm, &request_args[..3.min(request_args.len())])?,
-                "latestUpdatesRequest" => http_source_latest_updates_request(vm, &request_args[..1.min(request_args.len())])?,
-                _ => return Err(nat_fatal(JvmError::Resolution(format!("unknown request: {}", request_name)))),
+                "popularMangaRequest" => http_source_popular_manga_request(
+                    vm,
+                    &request_args[..1.min(request_args.len())],
+                )?,
+                "searchMangaRequest" => http_source_search_manga_request(
+                    vm,
+                    &request_args[..3.min(request_args.len())],
+                )?,
+                "latestUpdatesRequest" => http_source_latest_updates_request(
+                    vm,
+                    &request_args[..1.min(request_args.len())],
+                )?,
+                _ => {
+                    return Err(nat_fatal(JvmError::Resolution(format!(
+                        "unknown request: {}",
+                        request_name
+                    ))))
+                }
             };
             let response = keiyoushi_execute(vm, &[request])?;
             // Parse response using default implementation (no receiver needed)
@@ -311,7 +325,12 @@ fn http_source_fetch(
                 "popularMangaParse" => http_source_popular_manga_parse(vm, &[response])?,
                 "searchMangaParse" => http_source_search_manga_parse(vm, &[response])?,
                 "latestUpdatesParse" => http_source_latest_updates_parse(vm, &[response])?,
-                _ => return Err(nat_fatal(JvmError::Resolution(format!("unknown parse: {}", parse_name)))),
+                _ => {
+                    return Err(nat_fatal(JvmError::Resolution(format!(
+                        "unknown parse: {}",
+                        parse_name
+                    ))))
+                }
             };
             Ok(result)
         })();
@@ -328,7 +347,11 @@ fn http_source_fetch(
 
 fn http_source_fetch_search(vm: &mut Vm, args: &[JValue]) -> R {
     // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 { args[0] } else { JValue::Null };
+    let receiver = if args.len() >= 1 {
+        args[0]
+    } else {
+        JValue::Null
+    };
     http_source_fetch(
         vm,
         receiver,
@@ -342,7 +365,11 @@ fn http_source_fetch_search(vm: &mut Vm, args: &[JValue]) -> R {
 
 fn http_source_fetch_popular(vm: &mut Vm, args: &[JValue]) -> R {
     // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 { args[0] } else { JValue::Null };
+    let receiver = if args.len() >= 1 {
+        args[0]
+    } else {
+        JValue::Null
+    };
     http_source_fetch(
         vm,
         receiver,
@@ -390,7 +417,11 @@ fn http_source_get_suspend(
 
 fn http_source_get_popular(vm: &mut Vm, args: &[JValue]) -> R {
     // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 { args[0] } else { JValue::Null };
+    let receiver = if args.len() >= 1 {
+        args[0]
+    } else {
+        JValue::Null
+    };
     http_source_get_suspend(
         vm,
         &[receiver],
@@ -498,7 +529,11 @@ pub(crate) fn http_source_latest_updates_request(vm: &mut Vm, args: &[JValue]) -
 
 fn http_source_get_search(vm: &mut Vm, args: &[JValue]) -> R {
     // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 { args[0] } else { JValue::Null };
+    let receiver = if args.len() >= 1 {
+        args[0]
+    } else {
+        JValue::Null
+    };
     http_source_get_suspend(
         vm,
         &[receiver],
@@ -512,7 +547,11 @@ fn http_source_get_search(vm: &mut Vm, args: &[JValue]) -> R {
 
 fn http_source_get_latest(vm: &mut Vm, args: &[JValue]) -> R {
     // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 { args[0] } else { JValue::Null };
+    let receiver = if args.len() >= 1 {
+        args[0]
+    } else {
+        JValue::Null
+    };
     http_source_get_suspend(
         vm,
         &[receiver],
@@ -1063,11 +1102,29 @@ fn parse_chapter_list_json(json: &str) -> Result<Vec<Chapter>, Box<dyn std::erro
     if let Some(arr) = v.get("chapters").and_then(|x| x.as_array()) {
         for item in arr {
             let chapter = Chapter {
-                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                date_upload: item.get("date_upload").and_then(|x| x.as_i64()).unwrap_or(0),
-                scanlator: item.get("scanlator").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                chapter_number: item.get("chapter_number").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+                name: item
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: item
+                    .get("url")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                date_upload: item
+                    .get("date_upload")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0),
+                scanlator: item
+                    .get("scanlator")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                chapter_number: item
+                    .get("chapter_number")
+                    .and_then(|x| x.as_f64())
+                    .unwrap_or(0.0) as f32,
             };
             chapters.push(chapter);
         }
@@ -1080,11 +1137,29 @@ fn parse_chapter_list_json(json: &str) -> Result<Vec<Chapter>, Box<dyn std::erro
             if let Some(arr) = value.get("chapters").and_then(|x| x.as_array()) {
                 for item in arr {
                     let chapter = Chapter {
-                        name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        date_upload: item.get("date_upload").and_then(|x| x.as_i64()).unwrap_or(0),
-                        scanlator: item.get("scanlator").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        chapter_number: item.get("chapter_number").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+                        name: item
+                            .get("name")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        url: item
+                            .get("url")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        date_upload: item
+                            .get("date_upload")
+                            .and_then(|x| x.as_i64())
+                            .unwrap_or(0),
+                        scanlator: item
+                            .get("scanlator")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        chapter_number: item
+                            .get("chapter_number")
+                            .and_then(|x| x.as_f64())
+                            .unwrap_or(0.0) as f32,
                     };
                     chapters.push(chapter);
                 }
@@ -1097,11 +1172,29 @@ fn parse_chapter_list_json(json: &str) -> Result<Vec<Chapter>, Box<dyn std::erro
     if let Some(arr) = v.as_array() {
         for item in arr {
             let chapter = Chapter {
-                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                date_upload: item.get("date_upload").and_then(|x| x.as_i64()).unwrap_or(0),
-                scanlator: item.get("scanlator").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                chapter_number: item.get("chapter_number").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+                name: item
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: item
+                    .get("url")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                date_upload: item
+                    .get("date_upload")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0),
+                scanlator: item
+                    .get("scanlator")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                chapter_number: item
+                    .get("chapter_number")
+                    .and_then(|x| x.as_f64())
+                    .unwrap_or(0.0) as f32,
             };
             chapters.push(chapter);
         }
@@ -1123,9 +1216,21 @@ fn parse_page_list_json(json: &str) -> Result<Vec<Page>, Box<dyn std::error::Err
         for item in arr {
             let page = Page {
                 index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                image_url: item.get("imageUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                name: item
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: item
+                    .get("url")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                image_url: item
+                    .get("imageUrl")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             };
             pages.push(page);
         }
@@ -1138,9 +1243,21 @@ fn parse_page_list_json(json: &str) -> Result<Vec<Page>, Box<dyn std::error::Err
                 for item in arr {
                     let page = Page {
                         index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                        name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        image_url: item.get("imageUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        name: item
+                            .get("name")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        url: item
+                            .get("url")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        image_url: item
+                            .get("imageUrl")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                     };
                     pages.push(page);
                 }
@@ -1153,9 +1270,21 @@ fn parse_page_list_json(json: &str) -> Result<Vec<Page>, Box<dyn std::error::Err
         for item in arr {
             let page = Page {
                 index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                name: item.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                url: item.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                image_url: item.get("imageUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                name: item
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: item
+                    .get("url")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                image_url: item
+                    .get("imageUrl")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             };
             pages.push(page);
         }
@@ -1182,7 +1311,9 @@ pub(crate) fn http_source_page_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
         Err(_) => {
             // Return empty List on parse error
             let class = vm.ensure_class_by_desc("Ljava/util/ArrayList;").unwrap();
-            let list_obj = vm.arena.alloc(class, Vec::new(), Some(Native::List(Vec::new())));
+            let list_obj = vm
+                .arena
+                .alloc(class, Vec::new(), Some(Native::List(Vec::new())));
             return Ok(JValue::Obj(list_obj));
         }
     };
@@ -1200,13 +1331,16 @@ pub(crate) fn http_source_page_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
                     url: page.url,
                     image_url: page.image_url,
                 },
-            ).map_err(|e| nat_fatal(JvmError::Resolution(e.to_string())))?;
+            )
+            .map_err(|e| nat_fatal(JvmError::Resolution(e.to_string())))?;
         page_refs.push(page_obj);
     }
 
     // Wrap in Java ArrayList
     let class = vm.ensure_class_by_desc("Ljava/util/ArrayList;").unwrap();
-    let list_obj = vm.arena.alloc(class, page_refs.clone(), Some(Native::List(page_refs)));
+    let list_obj = vm
+        .arena
+        .alloc(class, page_refs.clone(), Some(Native::List(page_refs)));
     Ok(JValue::Obj(list_obj))
 }
 
@@ -1229,32 +1363,102 @@ fn parse_manga_details_json(json: &str) -> Result<MangaDetails, Box<dyn std::err
     };
 
     // Try direct fields first
-    manga.title = v.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    manga.author = v.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    manga.artist = v.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    manga.description = v.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    manga.genre = v.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.title = v
+        .get("title")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    manga.author = v
+        .get("author")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    manga.artist = v
+        .get("artist")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    manga.description = v
+        .get("description")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    manga.genre = v
+        .get("genre")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     manga.status = v.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-    manga.thumbnail_url = v.get("thumbnailUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    manga.url = v.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    manga.update_strategy = v.get("updateStrategy").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-    manga.memo = v.get("memo").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    manga.thumbnail_url = v
+        .get("thumbnailUrl")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    manga.url = v
+        .get("url")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    manga.update_strategy = v
+        .get("updateStrategy")
+        .and_then(|x| x.as_i64())
+        .unwrap_or(0) as i32;
+    manga.memo = v
+        .get("memo")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
 
     // Try GraphQL format: { "data": { "manga": {...} } }
     if manga.title.is_empty() {
         if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
             for (_, value) in data {
                 if let Some(obj) = value.as_object() {
-                    manga.title = obj.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    manga.author = obj.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    manga.artist = obj.get("artist").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    manga.description = obj.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    manga.genre = obj.get("genre").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.title = obj
+                        .get("title")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    manga.author = obj
+                        .get("author")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    manga.artist = obj
+                        .get("artist")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    manga.description = obj
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    manga.genre = obj
+                        .get("genre")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     manga.status = obj.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-                    manga.thumbnail_url = obj.get("thumbnailUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    manga.url = obj.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    manga.update_strategy = obj.get("updateStrategy").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-                    manga.memo = obj.get("memo").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    manga.thumbnail_url = obj
+                        .get("thumbnailUrl")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    manga.url = obj
+                        .get("url")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    manga.update_strategy = obj
+                        .get("updateStrategy")
+                        .and_then(|x| x.as_i64())
+                        .unwrap_or(0) as i32;
+                    manga.memo = obj
+                        .get("memo")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     break;
                 }
             }

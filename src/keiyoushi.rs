@@ -967,25 +967,42 @@ impl Keiyoushi {
     /// modern keiyoushi sources (request/parse pairs are stubbed there).
     pub fn popular_coro(&mut self, src: &Source, page: i32) -> Result<MangaPages, JvmError> {
         let cont = self.suspend_cont()?;
-        let out = self.ctx.invoke_on(
+        match self.ctx.invoke_on(
             src.inst,
             "getPopularManga",
             "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[JValue::Int(page), cont],
-        )?;
-        self.manga_pages(out)
+        ) {
+            Ok(out) => self.manga_pages(out),
+            Err(e) => {
+                // Fallback to non-coro path if suspend function fails (e.g., NPE in state machine)
+                eprintln!(
+                    "popular_coro: suspend failed ({}), falling back to Rx/request-parse",
+                    e
+                );
+                self.popular(src, page)
+            }
+        }
     }
 
     /// `getLatestUpdates` (suspend).
     pub fn latest_coro(&mut self, src: &Source, page: i32) -> Result<MangaPages, JvmError> {
         let cont = self.suspend_cont()?;
-        let out = self.ctx.invoke_on(
+        match self.ctx.invoke_on(
             src.inst,
             "getLatestUpdates",
             "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[JValue::Int(page), cont],
-        )?;
-        self.manga_pages(out)
+        ) {
+            Ok(out) => self.manga_pages(out),
+            Err(e) => {
+                eprintln!(
+                    "latest_coro: suspend failed ({}), falling back to Rx/request-parse",
+                    e
+                );
+                self.latest(src, page)
+            }
+        }
     }
 
     /// `getSearchManga` (suspend), with the query plus per-filter states.
@@ -999,13 +1016,18 @@ impl Keiyoushi {
         let flist = self.build_filter_list(filters)?;
         let query_obj = self.ctx.vm().alloc_string(query);
         let cont = self.suspend_cont()?;
-        let out = self.ctx.invoke_on(
+        match self.ctx.invoke_on(
             src.inst,
             "getSearchManga",
             "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[JValue::Int(page), query_obj, flist, cont],
-        )?;
-        self.manga_pages(out)
+        ) {
+            Ok(out) => self.manga_pages(out),
+            Err(e) => {
+                eprintln!("search_coro: suspend failed ({}), falling back to Rx/request-parse", e);
+                self.search(src, page, query, filters)
+            }
+        }
     }
 
     /// `getPageList` (suspend) against a synthetic chapter ref.
@@ -1022,13 +1044,18 @@ impl Keiyoushi {
             Some(empty_chapter(url, name)),
         ));
         let cont = self.suspend_cont()?;
-        let out = self.ctx.invoke_on(
+        match self.ctx.invoke_on(
             src.inst,
             "getPageList",
             "(Leu/kanade/tachiyomi/source/model/SChapter;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[c, cont],
-        )?;
-        self.read_page_list(out)
+        ) {
+            Ok(out) => self.read_page_list(out),
+            Err(e) => {
+                eprintln!("pages_coro: suspend failed ({}), falling back to request-parse", e);
+                self.pages(src, chapter)
+            }
+        }
     }
 
     /// `getMangaUpdate` (suspend) — the combined details+chapters entry point
@@ -1053,7 +1080,7 @@ impl Keiyoushi {
             Some(Native::List(Vec::new())),
         ));
         let cont = self.suspend_cont()?;
-        self.ctx.invoke_on(
+        match self.ctx.invoke_on(
             src.inst,
             "getMangaUpdate",
             "(Leu/kanade/tachiyomi/source/model/SManga;Ljava/util/List;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;",
@@ -1064,23 +1091,37 @@ impl Keiyoushi {
                 JValue::Int(i32::from(fetch_chapters)),
                 cont,
             ],
-        )
+        ) {
+            Ok(out) => Ok(out),
+            Err(e) => {
+                eprintln!("manga_update_coro: suspend failed ({}), falling back to details/chapters", e);
+                // Fallback handled by caller (manga_update_details / manga_update_chapters)
+                Err(e)
+            }
+        }
     }
 
     /// `getMangaUpdate(..., true, false)` read as a manga.
     pub fn manga_update_details(&mut self, src: &Source, manga: &Manga) -> Result<Manga, JvmError> {
-        let out = self.manga_update_coro(src, manga, true, false)?;
-        let JValue::Obj(out_id) = out else {
-            return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
-        };
-        let smanga = self.ctx.invoke_on(
-            out_id,
-            "getManga",
-            "()Leu/kanade/tachiyomi/source/model/SManga;",
-            &[],
-        )?;
-        self.read_manga(smanga)?
-            .ok_or_else(|| JvmError::Resolution("getMangaUpdate: not a SManga".into()))
+        match self.manga_update_coro(src, manga, true, false) {
+            Ok(out) => {
+                let JValue::Obj(out_id) = out else {
+                    return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
+                };
+                let smanga = self.ctx.invoke_on(
+                    out_id,
+                    "getManga",
+                    "()Leu/kanade/tachiyomi/source/model/SManga;",
+                    &[],
+                )?;
+                self.read_manga(smanga)?
+                    .ok_or_else(|| JvmError::Resolution("getMangaUpdate: not a SManga".into()))
+            }
+            Err(e) => {
+                eprintln!("manga_update_details: getMangaUpdate failed ({}), falling back to classic manga_details", e);
+                self.manga_details(src, manga)
+            }
+        }
     }
 
     /// `getMangaUpdate(..., false, true)` read as a chapter list.
@@ -1089,14 +1130,21 @@ impl Keiyoushi {
         src: &Source,
         manga: &Manga,
     ) -> Result<Vec<Chapter>, JvmError> {
-        let out = self.manga_update_coro(src, manga, false, true)?;
-        let JValue::Obj(out_id) = out else {
-            return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
-        };
-        let list = self
-            .ctx
-            .invoke_on(out_id, "getChapters", "()Ljava/util/List;", &[])?;
-        self.read_chapter_list(list)
+        match self.manga_update_coro(src, manga, false, true) {
+            Ok(out) => {
+                let JValue::Obj(out_id) = out else {
+                    return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
+                };
+                let list = self
+                    .ctx
+                    .invoke_on(out_id, "getChapters", "()Ljava/util/List;", &[])?;
+                self.read_chapter_list(list)
+            }
+            Err(e) => {
+                eprintln!("manga_update_chapters: getMangaUpdate failed ({}), falling back to classic chapters", e);
+                self.chapters(src, manga)
+            }
+        }
     }
 
     /// Fetches the plaintext bytes of a page image through the extension's

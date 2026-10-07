@@ -36,9 +36,9 @@ pub(crate) use statics::{
     duration_unit_hours as lazy_duration_unit_hours,
     duration_unit_millis as lazy_duration_unit_millis,
     duration_unit_seconds as lazy_duration_unit_seconds, global_scope as lazy_global_scope,
-    lazy_dispatchers_instance, result_companion as lazy_result_companion,
-    lazy_int_progression_iterator,
-    string_companion as lazy_string_companion, unit_instance as lazy_unit_instance,
+    lazy_dispatchers_instance, lazy_int_progression_iterator,
+    result_companion as lazy_result_companion, string_companion as lazy_string_companion,
+    unit_instance as lazy_unit_instance,
 };
 pub(crate) use support::opaque_inst;
 pub(crate) use support::TABLE as SUPPORT_TABLE;
