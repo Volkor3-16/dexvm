@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
+
 use std::time::{Duration, Instant};
 
 use dexvm::keiyoushi::{FilterState, HttpData, HttpResp, Keiyoushi, Manga, MangaPages};
@@ -151,6 +152,7 @@ struct TestConfig {
     http_mode: HttpMode,
     require_fixtures: bool,
     fresh_vm_per_source: bool,
+    single_apk: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -174,6 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         http_mode: HttpMode::Replay,
         require_fixtures: false,
         fresh_vm_per_source: false,
+        single_apk: false,
     };
 
     let mut i = 0;
@@ -211,6 +214,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--shared-vm" => {
                 config.fresh_vm_per_source = false;
             }
+            "--single-apk" => {
+                config.single_apk = true;
+            }
             "--help" | "-h" => {
                 print_help();
                 return Ok(());
@@ -218,6 +224,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
         i += 1
+    }
+
+    if config.single_apk {
+        // Single APK mode: run test for one APK and output ExtensionResult JSON
+        let apk_path = config.apk_filter.as_deref().ok_or("single-apk requires --apk")?;
+        let result = test_extension(apk_path, &config)?;
+        let json = serde_json::to_string_pretty(&result)?;
+        if let Some(json_path) = &config.json_output {
+            fs::write(json_path, json)?;
+        } else {
+            println!("{}", json);
+        }
+        return Ok(());
     }
 
     let report = run_tests(&config)?;
@@ -257,6 +276,7 @@ Options:
   --http <mode>             HTTP mode: replay|empty|live (default: replay)
   --require-fixtures        Fail if fixtures/live/ missing in replay mode
   --shared-vm               Reuse single VM across all sources (default: fresh per source)
+  --single-apk              Output ExtensionResult JSON for single APK (for subprocess mode)
   --help, -h                Show this help
 
 HTTP modes:
@@ -285,13 +305,60 @@ fn run_tests(config: &TestConfig) -> Result<TestReport, Box<dyn std::error::Erro
         println!("  - {}", apk);
     }
 
-    let mut extensions = Vec::new();
-    for apk_path in &apks {
-        let ext_result = test_extension(apk_path, config)?;
-        extensions.push(ext_result);
-    }
+    // Stream results to a temporary JSONL file to avoid memory accumulation
+    let report_path = format!("/tmp/exttest_report_{}.jsonl", std::process::id());
+    let mut report_file = fs::File::create(&report_path)?;
+    let mut total_extensions = 0;
+    let mut total_sources = 0;
+    let mut sources_by_status: BTreeMap<String, usize> = BTreeMap::new();
+    let mut operations_by_status: BTreeMap<String, usize> = BTreeMap::new();
+    let mut failed_sources: Vec<FailedSourceSummary> = Vec::new();
 
-    let summary = build_summary(&extensions);
+    for apk_path in &apks {
+        let ext_result = test_extension_subprocess(apk_path, config)?;
+        
+        // Write to JSONL immediately
+        let line = serde_json::to_string(&ext_result)?;
+        use std::io::Write;
+        writeln!(report_file, "{}", line)?;
+
+        // Update summary counters
+        total_extensions += 1;
+        total_sources += ext_result.sources.len();
+        for src in &ext_result.sources {
+            let status = if src.error.is_some() { "failed" } else { "passed" };
+            *sources_by_status.entry(status.to_string()).or_insert(0) += 1;
+            for (op, res) in &src.operations {
+                let op_status = if res.success { "passed" } else if res.error_type.as_deref() == Some("skipped") { "skipped" } else { "failed" };
+                *operations_by_status.entry(format!("{}:{}", op, op_status)).or_insert(0) += 1;
+            }
+            if let Some(err) = &src.error {
+                failed_sources.push(FailedSourceSummary {
+                    extension: ext_result.apk_name.clone(),
+                    source: src.name.clone(),
+                    error_type: src.operations.values().next().and_then(|o| o.error_type.clone()).unwrap_or_else(|| "unknown".to_string()),
+                    error_message: err.clone(),
+                });
+            }
+        }
+    }
+    drop(report_file); // Ensure file is closed
+
+    // Read back to build final report
+    let text = fs::read_to_string(&report_path)?;
+    let extensions: Vec<ExtensionResult> = text.lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let _ = fs::remove_file(&report_path);
+
+    let summary = Summary {
+        total_extensions,
+        total_sources,
+        sources_by_status,
+        operations_by_status,
+        failed_sources,
+    };
+
     let report = TestReport {
         timestamp: chrono::Utc::now().to_rfc3339(),
         git_commit: get_git_commit(),
@@ -301,6 +368,77 @@ fn run_tests(config: &TestConfig) -> Result<TestReport, Box<dyn std::error::Erro
     };
 
     Ok(report)
+}
+
+/// Run a single APK test in a subprocess to isolate VM state.
+fn test_extension_subprocess(
+    apk_path: &str,
+    config: &TestConfig,
+) -> Result<ExtensionResult, Box<dyn std::error::Error>> {
+    let apk_name = Path::new(apk_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(apk_path)
+        .to_string();
+
+    println!("
+=== Testing {} ===", apk_name);
+
+    let mut cmd = std::process::Command::new(std::env::current_exe()?);
+    cmd.arg("--apk").arg(apk_path);
+    cmd.arg("--single-apk");
+    
+    match config.http_mode {
+        HttpMode::Replay => { cmd.arg("--http").arg("replay"); }
+        HttpMode::Empty => { cmd.arg("--http").arg("empty"); }
+        HttpMode::Live => { cmd.arg("--http").arg("live"); }
+    }
+    if config.require_fixtures {
+        cmd.arg("--require-fixtures");
+    }
+    if config.verbose {
+        cmd.arg("--verbose");
+    }
+    cmd.arg("--timeout").arg(config.timeout_secs.to_string());
+    
+    // Pass through environment
+    cmd.env("DEXVM_LIVE", std::env::var("DEXVM_LIVE").unwrap_or_default());
+    if let Ok(rust_log) = std::env::var("RUST_LOG") {
+        cmd.env("RUST_LOG", rust_log);
+    }
+    
+    // Output JSON for parsing
+    let json_path = format!("/tmp/exttest_{}_{}.json", 
+        apk_name.replace('/', "_"), 
+        std::process::id());
+    cmd.arg("--json").arg(&json_path);
+
+    let start = Instant::now();
+    // Don't capture stdout/stderr - let them inherit to avoid memory explosion
+    let status = cmd.status()?;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Read the JSON report
+    let ext_result = if Path::new(&json_path).exists() {
+        let text = fs::read_to_string(&json_path)?;
+        let result: ExtensionResult = serde_json::from_str(&text)?;
+        let _ = fs::remove_file(&json_path);
+        result
+    } else {
+        // Fallback: subprocess failed
+        ExtensionResult {
+            apk_path: apk_path.to_string(),
+            apk_name,
+            manifest_package: None,
+            manifest_name: None,
+            manifest_version: None,
+            sources: Vec::new(),
+            load_error: Some(format!("Subprocess exited with: {}", status)),
+            total_duration_ms: duration_ms,
+        }
+    };
+
+    Ok(ext_result)
 }
 
 fn discover_apks(filter: Option<&str>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
