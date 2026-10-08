@@ -336,6 +336,11 @@ impl Keiyoushi {
     }
 
     pub fn popular(&mut self, src: &Source, page: i32) -> Result<MangaPages, JvmError> {
+        let src_class = {
+            let vm = self.ctx.vm();
+            vm.arena.objects.get(src.inst as usize).map(|o| vm.str_of(vm.classes[o.class as usize].descriptor).to_string()).unwrap_or("NULL".to_string())
+        };
+        eprintln!("DEBUG popular: ENTRY, src.inst={}, class={}", src.inst, src_class);
         if let Some(mangas) = self.try_fetch_observable(
             src,
             "fetchPopularManga",
@@ -344,6 +349,15 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
+        eprintln!("DEBUG popular: try_fetch_observable returned None");
+        // Prefer coroutine API if the extension implements it (modern keiyoushi).
+        // Fall back to legacy request/parse only for older extensions.
+        let has_coro = self.has_coro_override(src, "getPopularManga");
+        eprintln!("DEBUG popular: has_coro_override = {}", has_coro);
+        if has_coro {
+            return self.popular_coro(src, page);
+        }
+        // Legacy path: request/parse
         let req = self.ctx.invoke_on(
             src.inst,
             "popularMangaRequest",
@@ -369,6 +383,12 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
+        // Prefer coroutine API if the extension implements it (modern keiyoushi).
+        // Fall back to legacy request/parse only for older extensions.
+        if self.has_coro_override(src, "getLatestUpdates") {
+            return self.latest_coro(src, page);
+        }
+        // Legacy path: request/parse
         let req = self.ctx.invoke_on(
             src.inst,
             "latestUpdatesRequest",
@@ -407,7 +427,12 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
-
+        // Prefer coroutine API if the extension implements it (modern keiyoushi).
+        // Fall back to legacy request/parse only for older extensions.
+        if self.has_coro_override(src, "getSearchManga") {
+            return self.search_coro(src, page, query, filters);
+        }
+        // Legacy path: request/parse
         let req = self.ctx.invoke_on(
             src.inst,
             "searchMangaRequest",
@@ -433,6 +458,76 @@ impl Keiyoushi {
     /// helper runs the override when present and unwraps the synchronously
     /// evaluated Observable:
     /// - missing method / inner `UnsupportedOperationException` → `Ok(None)`
+    /// Checks if a JvmError is an Uncaught UnsupportedOperationException.
+    fn is_unsupported_operation(&mut self, err: &JvmError) -> bool {
+        if let JvmError::Uncaught(obj_id) = err {
+            let vm = self.ctx.vm();
+            if let Some(obj) = vm.arena.objects.get(*obj_id as usize) {
+                let class_desc = vm.class_desc_str(obj.class);
+                return class_desc == "Ljava/lang/UnsupportedOperationException;";
+            }
+        }
+        false
+    }
+
+    /// Tries the RxJava-style `fetch*` override for a source operation.
+    ///
+    /// Old-style sources (M+) override `fetchSearchManga` & friends and leave
+    /// the request/parse pair as deliberate
+    /// `throw UnsupportedOperationException` stubs; coroutine-era sources
+    /// Checks if the source extension has a coroutine override for the given method.
+    /// Modern keiyoushi extensions implement suspend functions like `getPopularManga`,
+    /// `getSearchManga`, `getLatestUpdates` instead of the legacy request/parse pair.
+    fn has_coro_override(&mut self, src: &Source, method: &str) -> bool {
+        let vm = self.ctx.vm();
+        let obj = match vm.arena.objects.get(src.inst as usize) {
+            Some(o) => o,
+            None => return false,
+        };
+        let class_id = obj.class;
+        let sig = match method {
+            "getPopularManga" => "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+            "getSearchManga" => "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+            "getLatestUpdates" => "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
+            _ => return false,
+        };
+        let name = vm.intern(method);
+        let sig_id = vm.intern(sig);
+        eprintln!("DEBUG has_coro_override: method={}, class_id={}, name_id={}, sig_id={}", method, class_id, name, sig_id);
+        // Check if method exists in class hierarchy (virtual or direct)
+        fn find_method(vm: &Vm, class: u32, name: u32, sig: u32) -> bool {
+            let class_def = &vm.classes[class as usize];
+            eprintln!("DEBUG find_method: class={}, dispatch_keys={}", class, class_def.dispatch.len());
+            if class_def.dispatch.contains_key(&(name, sig)) {
+                eprintln!("DEBUG find_method: FOUND in dispatch");
+                return true;
+            }
+            if let Some(superclass) = class_def.superclass {
+                eprintln!("DEBUG find_method: checking superclass {}", superclass);
+                if find_method(vm, superclass, name, sig) {
+                    return true;
+                }
+            }
+            for &interface in &class_def.interfaces {
+                eprintln!("DEBUG find_method: checking interface {}", interface);
+                if find_method(vm, interface, name, sig) {
+                    return true;
+                }
+            }
+            false
+        }
+        find_method(vm, class_id, name, sig_id)
+    }
+
+    /// Tries the RxJava-style `fetch*` override for a source operation.
+    ///
+    /// Old-style sources (M+) override `fetchSearchManga` & friends and leave
+    /// the request/parse pair as deliberate
+    /// `throw UnsupportedOperationException` stubs; coroutine-era sources
+    /// inherit the Rx default which delegates back to those same hooks. This
+    /// helper runs the override when present and unwraps the synchronously
+    /// evaluated Observable:
+    /// - missing method / inner `UnsupportedOperationException` → `Ok(None)`
     ///   (caller falls back to the request+parse path),
     /// - success → `Ok(Some(value))` (the single emitted item).
     fn try_fetch_observable(
@@ -444,17 +539,42 @@ impl Keiyoushi {
     ) -> Result<Option<JValue>, JvmError> {
         use crate::vm::object::Native;
 
+        eprintln!("DEBUG try_fetch_observable: method={}", method);
         let ob = match self.ctx.invoke_on(src.inst, method, sig, args) {
-            Ok(v) => v,
-            Err(JvmError::Resolution(_)) => return Ok(None),
-            Err(e) => return Err(e),
+            Ok(v) => {
+                eprintln!("DEBUG try_fetch_observable: invoke_on succeeded");
+                v
+            }
+            Err(JvmError::Resolution(_)) => {
+                eprintln!("DEBUG try_fetch_observable: Resolution error");
+                return Ok(None);
+            }
+            Err(e) if self.is_unsupported_operation(&e) => {
+                eprintln!("DEBUG try_fetch_observable: UnsupportedOperationException caught");
+                return Ok(None);
+            }
+            Err(e) => {
+                eprintln!("DEBUG try_fetch_observable: other error: {:?}", e);
+                return Err(e);
+            }
         };
 
         let (values, error) = match self.ctx.vm().payload_of(ob) {
-            Some(Native::RxObservable { values, error, .. }) => (values.clone(), error),
-            _ => return Ok(None),
+            Some(Native::RxObservable { values, error, .. }) => {
+                eprintln!("DEBUG try_fetch_observable: found RxObservable with {} values", values.len());
+                (values.clone(), error)
+            }
+            Some(other) => {
+                eprintln!("DEBUG try_fetch_observable: payload is NOT RxObservable (variant)");
+                return Ok(None);
+            }
+            None => {
+                eprintln!("DEBUG try_fetch_observable: payload_of returned None");
+                return Ok(None);
+            }
         };
 
+        eprintln!("DEBUG try_fetch_observable: checking error field, error = {:?}", error);
         if let JValue::Obj(err_id) = error {
             let class = {
                 let vm = self.ctx.vm();
@@ -468,11 +588,15 @@ impl Keiyoushi {
                 let vm = self.ctx.vm();
                 vm.class_desc_str(class)
             };
-            if class_desc == "Ljava/lang/UnsupportedOperationException;" {
+            eprintln!("DEBUG try_fetch_observable: error class_desc = '{}'", class_desc);
+            // Match both dex descriptor format and Java dot notation
+            if class_desc == "Ljava/lang/UnsupportedOperationException;" || class_desc == "java.lang.UnsupportedOperationException" {
+                eprintln!("DEBUG try_fetch_observable: caught UnsupportedOperationException in Observable, returning Ok(None)");
                 return Ok(None);
             }
             return Err(JvmError::Uncaught(err_id));
         }
+        eprintln!("DEBUG try_fetch_observable: error is NOT JValue::Obj, returning values");
 
         Ok(values.into_iter().next())
     }
@@ -977,10 +1101,24 @@ impl Keiyoushi {
             Err(e) => {
                 // Fallback to non-coro path if suspend function fails (e.g., NPE in state machine)
                 eprintln!(
-                    "popular_coro: suspend failed ({}), falling back to Rx/request-parse",
+                    "popular_coro: suspend failed ({}), falling back to legacy request/parse",
                     e
                 );
-                self.popular(src, page)
+                // Fall back to legacy request/parse directly, NOT to popular() to avoid loop
+                let req = self.ctx.invoke_on(
+                    src.inst,
+                    "popularMangaRequest",
+                    "(I)Lokhttp3/Request;",
+                    &[JValue::Int(page)],
+                )?;
+                let resp = self.execute(req)?;
+                let mangas = self.ctx.invoke_on(
+                    src.inst,
+                    "popularMangaParse",
+                    "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
+                    &[resp],
+                )?;
+                self.manga_pages(mangas)
             }
         }
     }
@@ -997,10 +1135,24 @@ impl Keiyoushi {
             Ok(out) => self.manga_pages(out),
             Err(e) => {
                 eprintln!(
-                    "latest_coro: suspend failed ({}), falling back to Rx/request-parse",
+                    "latest_coro: suspend failed ({}), falling back to legacy request/parse",
                     e
                 );
-                self.latest(src, page)
+                // Fall back to legacy request/parse directly, NOT to latest() to avoid loop
+                let req = self.ctx.invoke_on(
+                    src.inst,
+                    "latestUpdatesRequest",
+                    "(I)Lokhttp3/Request;",
+                    &[JValue::Int(page)],
+                )?;
+                let resp = self.execute(req)?;
+                let mangas = self.ctx.invoke_on(
+                    src.inst,
+                    "latestUpdatesParse",
+                    "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
+                    &[resp],
+                )?;
+                self.manga_pages(mangas)
             }
         }
     }
@@ -1024,8 +1176,22 @@ impl Keiyoushi {
         ) {
             Ok(out) => self.manga_pages(out),
             Err(e) => {
-                eprintln!("search_coro: suspend failed ({}), falling back to Rx/request-parse", e);
-                self.search(src, page, query, filters)
+                eprintln!("search_coro: suspend failed ({}), falling back to legacy request/parse", e);
+                // Fall back to legacy request/parse directly, NOT to search() to avoid loop
+                let req = self.ctx.invoke_on(
+                    src.inst,
+                    "searchMangaRequest",
+                    "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;)Lokhttp3/Request;",
+                    &[JValue::Int(page), query_obj, flist],
+                )?;
+                let resp = self.execute(req)?;
+                let mangas = self.ctx.invoke_on(
+                    src.inst,
+                    "searchMangaParse",
+                    "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
+                    &[resp],
+                )?;
+                self.manga_pages(mangas)
             }
         }
     }
@@ -1052,8 +1218,22 @@ impl Keiyoushi {
         ) {
             Ok(out) => self.read_page_list(out),
             Err(e) => {
-                eprintln!("pages_coro: suspend failed ({}), falling back to request-parse", e);
-                self.pages(src, chapter)
+                eprintln!("pages_coro: suspend failed ({}), falling back to legacy request/parse", e);
+                // Fall back to legacy request/parse directly, NOT to pages() to avoid loop
+                let req = self.ctx.invoke_on(
+                    src.inst,
+                    "pageListRequest",
+                    "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;",
+                    &[c],
+                )?;
+                let resp = self.execute(req)?;
+                let pages = self.ctx.invoke_on(
+                    src.inst,
+                    "pageListParse",
+                    "(Lokhttp3/Response;)Ljava/util/List;",
+                    &[resp],
+                )?;
+                self.read_page_list(pages)
             }
         }
     }

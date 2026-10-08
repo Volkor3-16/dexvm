@@ -316,92 +316,102 @@ impl Vm {
         let mut pairs: Vec<(String, String)> = Vec::new();
         let get_type_cls = "Luy/kohesive/injekt/api/FullTypeReference;";
         let factory_cls = "Luy/kohesive/injekt/api/InjektFactory;";
-        for class in 0..self.classes.len() as u32 {
-            for m in &self.classes[class as usize].methods {
-                let Some(code) = &m.code else {
+        // Scan all dex files for all classes (not just loaded ones)
+        for dex in &self.dexes {
+            for class_def in &dex.classes {
+                let class_desc = dex.type_descriptor(class_def.class_idx).to_string();
+                let Some(class_data) = &class_def.class_data else {
                     continue;
                 };
-                let Ok(decoded) = decode_all(&code.insns) else {
-                    continue;
-                };
-                let dex = self.dex_at(m.dex_idx);
-                // register -> dex type id of the last `new-instance`.
-                let mut last_new: Vec<Option<u32>> = vec![None; code.registers_size as usize];
-                // register -> subclass descriptor of the last getType result.
-                let mut type_reg: Vec<Option<String>> = vec![None; code.registers_size as usize];
-                // set by getType; the next move-result carries its value.
-                let mut pending_get_type: Option<String> = None;
-                // set by getInstance; the next move-result carries its value.
-                let mut want_result: Option<String> = None;
-                // (result reg, subclass) awaiting the immediate check-cast.
-                let mut pending_inst: Option<(u8, String)> = None;
-                for insn in decoded.insns.iter() {
-                    match insn {
-                        Insn::NewInstance(reg, type_idx) => {
-                            if let Some(slot) = last_new.get_mut(*reg as usize) {
-                                *slot = Some(*type_idx);
-                            }
-                        }
-                        Insn::MoveResult(reg) | Insn::MoveResultWide(reg) => {
-                            if let Some(sub) = pending_get_type.take() {
-                                if let Some(slot) = type_reg.get_mut(*reg as usize) {
-                                    *slot = Some(sub);
+                // Scan both direct and virtual methods
+                for encoded in class_data.direct_methods.iter().chain(&class_data.virtual_methods) {
+                    let m = &dex.methods[encoded.method_idx as usize];
+                    let Some(code) = &encoded.code else {
+                        continue;
+                    };
+                    let Ok(decoded) = decode_all(&code.insns) else {
+                        continue;
+                    };
+                    // register -> dex type id of the last `new-instance`.
+                    let mut last_new: Vec<Option<u32>> = vec![None; code.registers_size as usize];
+                    // register -> subclass descriptor of the last getType result.
+                    let mut type_reg: Vec<Option<String>> = vec![None; code.registers_size as usize];
+                    // set by getType; the next move-result carries its value.
+                    let mut pending_get_type: Option<String> = None;
+                    // set by getInstance; the next move-result carries its value.
+                    let mut want_result: Option<String> = None;
+                    // (result reg, subclass) awaiting the immediate check-cast.
+                    let mut pending_inst: Option<(u8, String)> = None;
+                    for insn in decoded.insns.iter() {
+                        match insn {
+                            Insn::NewInstance(reg, type_idx) => {
+                                if let Some(slot) = last_new.get_mut(*reg as usize) {
+                                    *slot = Some(*type_idx);
                                 }
                             }
-                            if let Some(sub) = want_result.take() {
-                                pending_inst = Some((*reg, sub));
-                            }
-                            if let Some(slot) = last_new.get_mut(*reg as usize) {
-                                *slot = None;
-                            }
-                        }
-                        Insn::Invoke(_, method_idx, args) => {
-                            let Some(mref) = dex.methods.get(*method_idx as usize) else {
-                                continue;
-                            };
-                            let name = dex
-                                .strings
-                                .get(mref.name as usize)
-                                .map(|s| s.as_ref())
-                                .unwrap_or("");
-                            let owner = dex
-                                .strings
-                                .get(dex.types.get(mref.class as usize).copied().unwrap_or(0)
-                                    as usize)
-                                .map(|s| s.as_ref())
-                                .unwrap_or("");
-                            match name {
-                                "getType" if owner == get_type_cls => {
-                                    let recv = args.reg_at(0) as usize;
-                                    if let Some(Some(sid)) = last_new.get(recv) {
-                                        pending_get_type =
-                                            Some(dex.type_descriptor(*sid).to_string());
+                            Insn::MoveResult(reg) | Insn::MoveResultWide(reg) => {
+                                if let Some(sub) = pending_get_type.take() {
+                                    if let Some(slot) = type_reg.get_mut(*reg as usize) {
+                                        *slot = Some(sub);
                                     }
                                 }
-                                "getInstance" if owner == factory_cls => {
-                                    let targ = args.reg_at(1) as usize;
-                                    if let Some(Some(sub)) = type_reg.get(targ) {
-                                        want_result = Some(sub.clone());
+                                if let Some(sub) = want_result.take() {
+                                    pending_inst = Some((*reg, sub));
+                                }
+                                if let Some(slot) = last_new.get_mut(*reg as usize) {
+                                    *slot = None;
+                                }
+                            }
+                            Insn::Invoke(_, method_idx, args) => {
+                                let Some(mref) = dex.methods.get(*method_idx as usize) else {
+                                    continue;
+                                };
+                                let name = dex
+                                    .strings
+                                    .get(mref.name as usize)
+                                    .map(|s| s.as_ref())
+                                    .unwrap_or("");
+                                let owner = dex
+                                    .strings
+                                    .get(dex.types.get(mref.class as usize).copied().unwrap_or(0)
+                                        as usize)
+                                    .map(|s| s.as_ref())
+                                    .unwrap_or("");
+                                match name {
+                                    "getType" if owner == get_type_cls => {
+                                        let recv = args.reg_at(0) as usize;
+                                        if let Some(Some(sid)) = last_new.get(recv) {
+                                            pending_get_type =
+                                                Some(dex.type_descriptor(*sid).to_string());
+                                        }
+                                    }
+                                    "getInstance" if owner == factory_cls => {
+                                        let targ = args.reg_at(1) as usize;
+                                        if let Some(Some(sub)) = type_reg.get(targ) {
+                                            want_result = Some(sub.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            Insn::CheckCast(reg, type_idx) => {
+                                if let Some((r, sub)) = pending_inst.take() {
+                                    if r == *reg {
+                                        let t = dex.type_descriptor(*type_idx);
+                                        pairs.push((sub, t.to_string()));
                                     }
                                 }
-                                _ => {}
                             }
+                            _ => {}
                         }
-                        Insn::CheckCast(reg, type_idx) => {
-                            if let Some((r, sub)) = pending_inst.take() {
-                                if r == *reg {
-                                    let t = dex.type_descriptor(*type_idx);
-                                    pairs.push((sub, t.to_string()));
-                                }
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }
         }
         // Phase 2 (mutable): intern and record.
+        eprintln!("DEBUG scan_injekt_types: found {} pairs", pairs.len());
         for (sub, t) in pairs {
+            eprintln!("DEBUG scan_injekt_types: pair = ('{}', '{}')", sub, t);
             let sub_id = self.intern(&sub);
             let t_id = self.intern(&t);
             self.injekt_type_by_subclass.insert(sub_id, t_id);

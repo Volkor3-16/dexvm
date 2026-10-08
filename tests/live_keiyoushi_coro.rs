@@ -148,7 +148,7 @@ fn check_era(ext: &mut Keiyoushi, src: &Source, m0: &Manga, expect_16plus: bool)
         // No suspend methods at all: the combined entry must fail to resolve,
         // while the classic request/parse flow is the APK's real one.
         match ext.manga_update_details(src, m0) {
-            Ok(_) => {}, // classic details works (real implementation)
+            Ok(_) => {} // classic details works (real implementation)
             Err(e) => assert!(
                 ext.describe_error(&e).contains("getMangaUpdate"),
                 "pre-1.6 apk classic details must fail with getMangaUpdate error: {}",
@@ -156,7 +156,7 @@ fn check_era(ext: &mut Keiyoushi, src: &Source, m0: &Manga, expect_16plus: bool)
             ),
         }
         match ext.manga_update_chapters(src, m0) {
-            Ok(_) => {}, // classic chapters works (real implementation)
+            Ok(_) => {} // classic chapters works (real implementation)
             Err(e) => assert!(
                 ext.describe_error(&e).contains("getMangaUpdate"),
                 "pre-1.6 apk classic chapters must fail with getMangaUpdate error: {}",

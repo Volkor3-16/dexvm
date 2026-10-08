@@ -56,24 +56,45 @@ pub(super) fn int_iterator_init(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(super) fn int_iterator_next_int(vm: &mut Vm, args: &[JValue]) -> R {
-    let Some(Native::IntRange(f, l)) = payload(vm, args[0]) else {
-        return Err(npe(vm));
+    let (first, last, step, next) = {
+        let Some(Native::IntIterator {
+            first,
+            last,
+            step,
+            next,
+        }) = payload(vm, args[0])
+        else {
+            return Err(npe(vm));
+        };
+        (*first, *last, *step, *next)
     };
-    if f > l {
+    let has_next = if step > 0 { next <= last } else { next >= last };
+    if !has_next {
         return Err(no_such_elem(vm));
     }
-    let v = *f;
-    if let Some(Native::IntRange(f2, _)) = payload_mut(vm, args[0]) {
-        *f2 += 1;
+    let v = next;
+    if let Some(Native::IntIterator { next, .. }) = payload_mut(vm, args[0]) {
+        *next = next.wrapping_add(step);
     }
     Ok(JValue::Int(v))
 }
 
 pub(super) fn int_iterator_has_next(vm: &mut Vm, args: &[JValue]) -> R {
-    let Some(Native::IntRange(f, l)) = payload(vm, args[0]) else {
+    let Some(Native::IntIterator {
+        first,
+        last,
+        step,
+        next,
+    }) = payload(vm, args[0])
+    else {
         return Err(npe(vm));
     };
-    Ok(JValue::Int(i32::from(f <= l)))
+    let has_next = if *step > 0 {
+        *next <= *last
+    } else {
+        *next >= *last
+    };
+    Ok(JValue::Int(if has_next { 1 } else { 0 }))
 }
 
 fn coerce_at_least(_vm: &mut Vm, args: &[JValue]) -> R {
@@ -185,7 +206,12 @@ pub(super) fn progression_iterator(vm: &mut Vm, args: &[JValue]) -> R {
     let iter_obj = vm.arena.alloc(
         iter_class,
         Vec::new(),
-        Some(Native::IntIterator { first, last, step }),
+        Some(Native::IntIterator {
+            first,
+            last,
+            step,
+            next: first,
+        }),
     );
     Ok(JValue::Obj(iter_obj))
 }
@@ -425,7 +451,7 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Lkotlin/ranges/IntProgression;",
         "iterator",
-        "()Lkotlin/ranges/IntIterator;",
+        "()Ljava/util/Iterator;",
         true,
         progression_iterator
     ),
@@ -540,6 +566,34 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "()Z",
         true,
         int_iterator_has_next
+    ),
+    ne!(
+        "Lkotlin/ranges/IntIterator;",
+        "<init>",
+        "()V",
+        true,
+        int_iterator_init
+    ),
+    ne!(
+        "Lkotlin/ranges/IntIterator;",
+        "nextInt",
+        "()I",
+        true,
+        int_iterator_next_int
+    ),
+    ne!(
+        "Lkotlin/ranges/IntIterator;",
+        "hasNext",
+        "()Z",
+        true,
+        int_iterator_has_next
+    ),
+    ne!(
+        "Lkotlin/ranges/IntIterator;",
+        "next",
+        "()I",
+        true,
+        int_iterator_next_int
     ),
     ne!(
         "Lkotlin/collections/CharIterator;",

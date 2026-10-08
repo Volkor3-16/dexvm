@@ -256,6 +256,7 @@ pub enum Native {
         first: i32,
         last: i32,
         step: i32,
+        next: i32,
     },
     /// java.time.LocalDate (days since epoch).
     LocalDay(u32),
@@ -517,6 +518,8 @@ pub enum Native {
     /// carries the concrete descriptor from the receiver's generic signature.
     Type {
         desc: String,
+        /// The FullTypeReference subclass that produced this Type (for debugging/workarounds).
+        source_class: String,
     },
     /// java.util.TimeZone (zone id string, e.g. "UTC", "GMT+07:00").
     TimeZone(String),

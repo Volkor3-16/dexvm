@@ -2712,6 +2712,15 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     ),
     #[cfg(feature = "kotlin")]
     shim!(
+        "Lkotlin/ranges/IntIterator;",
+        Some("Lkotlin/collections/IntIterator;"),
+        &["Ljava/util/Iterator;"],
+        0,
+        [],
+        fields = [("first", "I"), ("last", "I"), ("step", "I"), ("next", "I")]
+    ),
+    #[cfg(feature = "kotlin")]
+    shim!(
         "Lkotlin/ranges/IntProgression;",
         Some("Ljava/lang/Object;"),
         &[],
@@ -3934,36 +3943,156 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0,
         [
-            sdef!("NANO_OF_SECOND", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("NANO_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MICRO_OF_SECOND", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MICRO_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MILLI_OF_SECOND", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MILLI_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("SECOND_OF_MINUTE", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("SECOND_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MINUTE_OF_HOUR", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MINUTE_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("HOUR_OF_AMPM", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("CLOCK_HOUR_OF_AMPM", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("HOUR_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("CLOCK_HOUR_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("AMPM_OF_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("DAY_OF_WEEK", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("ALIGNED_DAY_OF_WEEK_IN_MONTH", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("ALIGNED_DAY_OF_WEEK_IN_YEAR", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("DAY_OF_MONTH", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("DAY_OF_YEAR", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("EPOCH_DAY", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("ALIGNED_WEEK_OF_MONTH", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("ALIGNED_WEEK_OF_YEAR", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("MONTH_OF_YEAR", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("PROLEPTIC_MONTH", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("YEAR_OF_ERA", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("YEAR", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("ERA", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("INSTANT_SECONDS", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
-            sdef!("OFFSET_SECONDS", "Ljava/time/temporal/ChronoField;", ShimValue::Const(JValue::Null)),
+            sdef!(
+                "NANO_OF_SECOND",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "NANO_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MICRO_OF_SECOND",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MICRO_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MILLI_OF_SECOND",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MILLI_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "SECOND_OF_MINUTE",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "SECOND_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MINUTE_OF_HOUR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MINUTE_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "HOUR_OF_AMPM",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "CLOCK_HOUR_OF_AMPM",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "HOUR_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "CLOCK_HOUR_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "AMPM_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "DAY_OF_WEEK",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "ALIGNED_DAY_OF_WEEK_IN_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "ALIGNED_DAY_OF_WEEK_IN_YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "DAY_OF_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "DAY_OF_YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "EPOCH_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "ALIGNED_WEEK_OF_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "ALIGNED_WEEK_OF_YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "MONTH_OF_YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "PROLEPTIC_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "YEAR_OF_ERA",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "ERA",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "INSTANT_SECONDS",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
+            sdef!(
+                "OFFSET_SECONDS",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Const(JValue::Null)
+            ),
         ]
     ),
     shim!(
