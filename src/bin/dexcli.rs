@@ -655,6 +655,7 @@ fn display_value(vm: &mut Vm, v: JValue) -> String {
                 method,
                 headers,
                 body,
+                enqueue_callback: _,
             }) => {
                 format!("Request(method={method}, url={url}, headers={headers:?}, body={body:?})")
             }

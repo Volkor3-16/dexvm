@@ -17,51 +17,6 @@ pub(crate) const FILTER: &str = "Leu/kanade/tachiyomi/source/model/Filter;";
 pub(crate) const RESPONSE: &str = "Lokhttp3/Response;";
 pub(crate) const REQUEST: &str = "Lokhttp3/Request;";
 
-/// A request built by the extension, handed to the host HTTP callback.
-#[derive(Debug, Clone)]
-pub struct HttpData {
-    pub url: String,
-    pub method: String,
-    pub headers: Vec<(String, String)>,
-    pub body: Option<String>,
-}
-
-/// The host HTTP callback output; becomes an `okhttp3.Response` object.
-#[derive(Debug, Clone)]
-pub struct HttpResp {
-    pub code: i32,
-    pub message: String,
-    pub headers: Vec<(String, String)>,
-    /// Raw response payload; text bodies arrive as UTF-8 bytes.
-    pub body: Option<Vec<u8>>,
-}
-
-impl HttpResp {
-    pub fn ok(body: impl Into<String>) -> Self {
-        HttpResp {
-            code: 200,
-            message: "OK".into(),
-            headers: Vec::new(),
-            body: Some(body.into().into_bytes()),
-        }
-    }
-    pub fn ok_bytes(bytes: Vec<u8>) -> Self {
-        HttpResp {
-            code: 200,
-            message: "OK".into(),
-            headers: Vec::new(),
-            body: Some(bytes),
-        }
-    }
-    pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .rev()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
-    }
-}
-
 // ---------------------------------------------------------------------------
 // lazies for shim class statics
 // ---------------------------------------------------------------------------
@@ -97,48 +52,56 @@ pub(crate) fn keiyoushi_execute(vm: &mut Vm, args: &[JValue]) -> R {
         _ => args[0],
     };
     let (url, method, headers, body) = request_parts(vm, request_obj)?;
-    check_network_url(vm, &url)?;
+    crate::vm::native::http::check_network_url(vm, &url)?;
     if std::env::var("DEXVM_TRACE").is_ok() {
         eprintln!("DEXVM_TRACE http-req {method} {url}");
     }
     let body_str = form_body_to_string(vm, &body);
-    let Some(http) = vm.http.clone() else {
+    let Some(http) = vm.http_async.clone() else {
         return Err(uoe(vm, "no HTTP client registered for this SourceEngine"));
     };
-    let resp = http(&HttpData {
+    
+    // Park the continuation and call async HTTP callback
+    let cont_id = match vm.park_continuation(args[0]) {
+        Ok(id) => id,
+        Err(e) => return Err(nat_fatal(e)),
+    };
+    
+    // Get the callback from the Request and store it for later invocation on resume
+    if let Some(Native::Request { enqueue_callback: Some(callback), .. }) = payload(vm, args[0]) {
+        vm.enqueue_callbacks.insert(cont_id, callback.clone());
+    }
+    
+    let http_data = crate::vm::native::http::HttpData {
         url,
         method,
         headers,
         body: body_str,
-    });
-    if std::env::var("DEXVM_TRACE").is_ok() {
-        let preview: String = resp
-            .body
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .take(60)
-            .map(|b| char::from(*b))
-            .collect();
-        eprintln!(
-            "DEXVM_TRACE http {} code={} body={}",
-            resp.code,
-            resp.message,
-            preview.escape_default().take(120).collect::<String>()
-        );
-    }
-    alloc(
-        vm,
-        RESPONSE,
-        Native::Response {
-            code: resp.code,
-            message: resp.message,
-            headers: resp.headers,
-            body: resp.body,
-            request: request_obj,
-            prior: JValue::Null,
-        },
-    )
+    };
+    
+    // Call the async HTTP callback with a response handler that resumes the continuation
+    http(http_data, Box::new(move |resp: crate::vm::native::http::HttpResp| {
+        // Resume the parked continuation with the response
+        let response_obj = alloc(
+            vm,
+            RESPONSE,
+            Native::Response {
+                code: resp.code,
+                message: resp.message,
+                headers: resp.headers,
+                body: resp.body,
+                request: request_obj,
+                prior: JValue::Null,
+            }
+        ).expect("alloc response");
+        
+        if let Err(e) = vm.resume_continuation(cont_id, response_obj) {
+            eprintln!("DEXVM_TRACE failed to resume continuation: {e}");
+        }
+    }));
+    
+    // Return suspend marker to yield the coroutine
+    Err(NatErr::Suspend(cont_id))
 }
 
 pub(crate) fn check_network_url(vm: &mut Vm, url: &str) -> Result<(), NatErr> {
@@ -180,16 +143,8 @@ pub(crate) fn check_network_url(vm: &mut Vm, url: &str) -> Result<(), NatErr> {
 
 /// Host callback that returns the stored `lazy_http`? (unused, kept for docs)
 #[allow(dead_code)]
-pub(crate) type HttpCall = Rc<dyn Fn(&HttpData) -> HttpResp>;
-
-/// Per-host header resolver: given the lowercase request host, returns an
-/// optional User-Agent and Cookie header value (see
-/// [`Context::set_host_headers`](crate::Context::set_host_headers)).
-pub(crate) type HostHeaderFn = Rc<dyn Fn(&str) -> (Option<String>, Option<String>)>;
-
-pub(crate) fn _http_client(vm: &mut Vm) -> Option<HttpCall> {
-    vm.http.clone()
-}
+/// Async HTTP callback: takes request data and a response handler.
+/// The response handler must be called exactly once with the HttpResp.
 
 /// `OkHttpExtensionsKt.awaitSuccess(Call, Continuation)` — the suspend
 /// bridge used by every keiyoushi coroutine source. The VM is fully
@@ -462,6 +417,7 @@ pub(crate) fn http_source_search_manga_request(vm: &mut Vm, args: &[JValue]) -> 
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
+            enqueue_callback: None,
         },
     )?;
     keiyoushi_execute(vm, &[request])
@@ -487,6 +443,7 @@ pub(crate) fn http_source_popular_manga_request(vm: &mut Vm, args: &[JValue]) ->
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
+            enqueue_callback: None,
         },
     )?;
     keiyoushi_execute(vm, &[request])
@@ -522,6 +479,7 @@ pub(crate) fn http_source_latest_updates_request(vm: &mut Vm, args: &[JValue]) -
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
+            enqueue_callback: None,
         },
     )?;
     keiyoushi_execute(vm, &[request])
@@ -1497,6 +1455,7 @@ pub(crate) fn http_source_image_request(vm: &mut Vm, args: &[JValue]) -> R {
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
+            enqueue_callback: None,
         },
     )
 }
@@ -2440,6 +2399,7 @@ pub(crate) fn requests_kt_get_default(vm: &mut Vm, args: &[JValue]) -> R {
             method: "GET".into(),
             headers,
             body: None,
+            enqueue_callback: None,
         },
     )
 }
@@ -2477,6 +2437,7 @@ pub(crate) fn requests_kt_post_default(vm: &mut Vm, args: &[JValue]) -> R {
             method: "POST".into(),
             headers,
             body: Some(body),
+            enqueue_callback: None,
         },
     )
 }

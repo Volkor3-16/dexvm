@@ -14,10 +14,10 @@ use rquickjs::{Context, Runtime, Value};
 
 use crate::vm::object::QuickJsHost;
 
-fn quickjs_payload(vm: &mut Vm, v: JValue) -> Result<Rc<QuickJsHost>, NatErr> {
+fn quickjs_payload(vm: &mut Vm, v: JValue) -> Result<std::sync::Arc<QuickJsHost>, NatErr> {
     let npe = npe(vm);
     match payload(vm, v) {
-        Some(Native::QuickJs(host)) => Ok(Rc::clone(host)),
+        Some(Native::QuickJs(host)) => Ok(std::sync::Arc::clone(host)),
         _ => Err(npe),
     }
 }
@@ -26,7 +26,7 @@ fn quickjs_create(vm: &mut Vm, _args: &[JValue]) -> R {
     log::debug!("quickjs: creating engine");
     let rt = Runtime::new().map_err(|e| iae(vm, format!("quickjs runtime: {e}")))?;
     let ctx = Context::full(&rt).map_err(|e| iae(vm, format!("quickjs context: {e}")))?;
-    let host = Rc::new(QuickJsHost {
+    let host = std::sync::Arc::new(QuickJsHost {
         rt: Rc::new(rt),
         ctx: Rc::new(ctx),
         next: RefCell::new(1),

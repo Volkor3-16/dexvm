@@ -10,6 +10,7 @@
 //! own serializer bytecode.
 
 use super::*;
+use crate::vm::object::{JsonVal, PrimitiveSerializerKind};
 
 // ---------------------------------------------------------------------------
 // JSON parsing
@@ -3161,6 +3162,7 @@ pub(crate) fn descriptor_init_placeholder(vm: &mut Vm, args: &[JValue]) -> R {
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::vm::object::{JsonVal, PrimitiveSerializerKind};
     use crate::Context;
 
     #[test]

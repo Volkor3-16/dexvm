@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::context::{Context, ContextError, SandboxOptions, SettingDefinition, SettingValue};
 use crate::manifest::{AppManifest, ManifestError};
@@ -26,7 +27,7 @@ use crate::vm::object::Native;
 use crate::vm::value::JValue;
 use crate::vm::Vm;
 
-pub use crate::vm::native::keiyoushi::{HttpData, HttpResp};
+pub use crate::vm::native::http::{HttpData, HttpResp};
 
 /// A live engine: one extension dex plus the host bridge.
 pub struct Keiyoushi {
@@ -126,15 +127,20 @@ impl Keiyoushi {
         Keiyoushi::new(&data)
     }
 
+    /// Registers a sync HTTP callback (for backward compatibility).
     pub fn set_http<F>(&mut self, f: F)
     where
-        F: Fn(&HttpData) -> HttpResp + 'static,
+        F: Fn(&HttpData) -> HttpResp + Send + Sync + 'static,
     {
-        self.ctx.set_http(f);
+        self.ctx.set_http_sync(f);
     }
 
-    pub fn set_http_rc(&mut self, f: Rc<dyn Fn(&HttpData) -> HttpResp>) {
-        self.ctx.set_http(move |r| f(r));
+    /// Registers an async HTTP callback using Arc (for backward compatibility).
+    pub fn set_http_rc(&mut self, f: Arc<dyn Fn(&HttpData) -> HttpResp + Send + Sync>) {
+        self.ctx.set_http(move |req: HttpData, respond: Box<dyn FnOnce(HttpResp) + Send + 'static>| {
+            let resp = f(&req);
+            respond(resp);
+        });
     }
 
     /// Host-owned per-host header resolver (User-Agent + Cookie). The
@@ -143,7 +149,7 @@ impl Keiyoushi {
     /// request does not set them itself.
     pub fn set_host_headers<F>(&mut self, f: F)
     where
-        F: Fn(&str) -> (Option<String>, Option<String>) + 'static,
+        F: Fn(&str) -> (Option<String>, Option<String>) + Send + Sync + 'static,
     {
         self.ctx.set_host_headers(f);
     }
@@ -727,6 +733,7 @@ impl Keiyoushi {
             Ok(v) => Ok(v),
             Err(crate::vm::NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
             Err(crate::vm::NatErr::Fatal(e)) => Err(e),
+            Err(crate::vm::NatErr::Suspend(cont_id)) => Err(JvmError::Suspended(cont_id)),
         }
     }
 

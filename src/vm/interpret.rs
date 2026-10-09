@@ -23,7 +23,7 @@ pub struct Frame {
     regs: Vec<JValue>,
     pc: usize,
     err_pc: usize,
-    result: JValue,
+    pub(crate) result: JValue,
     pending_exc: Option<JValue>,
 }
 
@@ -42,6 +42,11 @@ enum StepOutcome {
 }
 
 impl Frame {
+    /// Get a register value by index.
+    pub(crate) fn reg(&self, index: usize) -> Option<JValue> {
+        self.regs.get(index).cloned()
+    }
+    
     /// Dalvik lays out the incoming arguments as the *last* `ins_size`
     /// registers of the frame (vN-ins+1 .. vN), not the first.
     fn make_regs(args: &[JValue], ins_size: u16, registers: u16) -> Vec<JValue> {
@@ -107,6 +112,7 @@ pub fn run(vm: &mut Vm, class: u32, slot: u32, args: Vec<JValue>) -> Result<JVal
             Ok(v) => Ok(v),
             Err(NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
             Err(NatErr::Fatal(e)) => Err(e),
+            Err(NatErr::Suspend(cont_id)) => Err(JvmError::Suspended(cont_id)),
         };
     }
     let saved = std::mem::take(&mut vm.frames);
@@ -446,6 +452,10 @@ impl Vm {
                                         }
                                     }
                                     Err(NatErr::Fatal(e)) => return Err(e),
+                                    Err(NatErr::Suspend(cont_id)) => {
+                                        self.frames.push(f);
+                                        return Err(JvmError::Suspended(cont_id));
+                                    }
                                 }
                             }
                             Target::Bytecode {

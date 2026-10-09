@@ -36,6 +36,7 @@ fn injekt_instance_falls_back_to_application() {
             "Ljava/lang/reflect/Type;",
             Native::Type {
                 desc: "Lokhttp3/OkHttpClient;".into(),
+                source_class: "test".into(),
             },
         )
         .unwrap();

@@ -442,9 +442,9 @@ impl Context {
     /// value. The callback receives the preference key and its new value.
     pub fn on_update_settings<F>(&mut self, callback: F)
     where
-        F: Fn(&str, &PreferenceValue) + 'static,
+        F: Fn(&str, &PreferenceValue) + Send + Sync + 'static,
     {
-        self.vm.settings_update = Some(std::rc::Rc::new(callback));
+        self.vm.settings_update = Some(std::sync::Arc::new(callback));
     }
 
     /// Updates one setting through the same persistence path as Android
@@ -677,15 +677,24 @@ impl Context {
 
     /// Registers the HTTP client the keiyoushi bridge executes requests
     /// through (`RequestsKt.__host_execute`). Without one, request
-    /// execution throws an IllegalStateException. Executing a request also
-    /// requires a matching [`NetworkPermission::Connect`] grant.
+    /// Registers a sync HTTP callback (legacy): takes HttpData, returns HttpResp immediately.
+    #[cfg(feature = "tachiyomi")]
+    pub fn set_http_sync<F>(&mut self, f: F)
+    where
+        F: Fn(&crate::vm::native::http::HttpData) -> crate::vm::native::http::HttpResp + Send + Sync + 'static,
+    {
+        self.vm.http_sync = Some(std::sync::Arc::new(f));
+    }
+
+    /// Registers an async HTTP callback. The callback receives an `HttpData` request
+    /// and must call the provided response handler with the `HttpResp` result.
+    /// This enables coroutine suspend/resume for async HTTP execution.
     #[cfg(feature = "tachiyomi")]
     pub fn set_http<F>(&mut self, f: F)
     where
-        F: Fn(&crate::vm::native::keiyoushi::HttpData) -> crate::vm::native::keiyoushi::HttpResp
-            + 'static,
+        F: Fn(crate::vm::native::http::HttpData, Box<dyn FnOnce(crate::vm::native::http::HttpResp) + Send + 'static>) + Send + Sync + 'static,
     {
-        self.vm.http = Some(std::rc::Rc::new(f));
+        self.vm.http_async = Some(std::sync::Arc::new(f));
     }
 
     /// Registers a host-owned per-host header resolver, e.g. one backed by
@@ -708,9 +717,9 @@ impl Context {
     #[cfg(feature = "tachiyomi")]
     pub fn set_host_headers<F>(&mut self, f: F)
     where
-        F: Fn(&str) -> (Option<String>, Option<String>) + 'static,
+        F: Fn(&str) -> (Option<String>, Option<String>) + Send + Sync + 'static,
     {
-        self.vm.host_headers = Some(std::rc::Rc::new(f));
+        self.vm.host_headers = Some(std::sync::Arc::new(f));
     }
 
     /// Access to the underlying VM for advanced use (registering natives
@@ -1050,10 +1059,10 @@ mod tests {
             "display_mode".to_string(),
             PreferenceValue::String("vertical".to_string()),
         );
-        let notified = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let notified = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let notified_ref = notified.clone();
         ctx.on_update_settings(move |_, _| {
-            notified_ref.set(notified_ref.get() + 1);
+            notified_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         });
 
         // No persistence path is configured, so seeding must not touch disk
@@ -1063,13 +1072,13 @@ mod tests {
             ctx.get_settings("source_123").get("display_mode"),
             Some(&PreferenceValue::String("vertical".to_string()))
         );
-        assert_eq!(notified.get(), 0);
+        assert_eq!(notified.load(std::sync::atomic::Ordering::Relaxed), 0);
         assert_eq!(ctx.preference_file_names(), vec!["source_123".to_string()]);
 
         // update_setting still notifies the host callback.
         ctx.update_setting("source_123", "mode", PreferenceValue::Int(7))
             .unwrap();
-        assert_eq!(notified.get(), 1);
+        assert_eq!(notified.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 
     #[cfg(feature = "android")]

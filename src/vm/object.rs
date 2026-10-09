@@ -135,7 +135,7 @@ impl ArrayData {
 #[cfg(feature = "jsoup")]
 #[derive(Clone)]
 pub struct JsoupDocRef {
-    pub doc: std::rc::Rc<dom_query::Document>,
+    pub doc: std::sync::Arc<dom_query::Document>,
     /// Base URI (the response URL) used to resolve `abs:` attributes.
     pub base: Option<String>,
 }
@@ -324,6 +324,8 @@ pub enum Native {
         request: JValue,
         client: JValue,
         canceled: bool,
+        /// Callback stored for async enqueue, invoked on resume.
+        enqueue_callback: Option<JValue>,
     },
     /// okhttp3.Interceptor$Chain under execution.
     Chain {
@@ -508,7 +510,7 @@ pub enum Native {
     JsonArr(Vec<JValue>),
     /// app.cash.quickjs.QuickJs host engine (real QuickJS via rquickjs).
     #[cfg(feature = "quickjs")]
-    QuickJs(std::rc::Rc<QuickJsHost>),
+    QuickJs(std::sync::Arc<QuickJsHost>),
     /// java.io.File: real host path. Every `File` method operates on the
     /// actual filesystem (mkdirs/exists/lastModified/resolve/...).
     File {
@@ -551,6 +553,8 @@ pub enum Native {
         method: String,
         headers: Vec<(String, String)>,
         body: Option<JValue>,
+        /// Callback for async enqueue, set by Call.enqueue() and used on resume.
+        enqueue_callback: Option<JValue>,
     },
     /// okhttp3.Request$Builder under construction.
     RequestBuilder {

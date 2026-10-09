@@ -114,13 +114,11 @@ mod kotlinx;
 pub(crate) mod okhttp;
 #[cfg(feature = "okhttp")]
 mod okio;
-#[cfg(feature = "tachiyomi")]
+pub mod http;
 pub(crate) mod proto;
 #[cfg(feature = "quickjs")]
 mod quickjs;
-#[cfg(feature = "tachiyomi")]
 mod rx;
-#[cfg(feature = "tachiyomi")]
 pub(crate) mod serialization;
 
 pub(crate) use self::java::eu::kanade::tachiyomi::lazy_app_info_instance;
@@ -176,14 +174,17 @@ pub(crate) use self::java::os::{
     lazy_version_security_patch_lazy,
 };
 #[cfg(feature = "tachiyomi")]
+#[cfg(feature = "tachiyomi")]
 pub(crate) use self::keiyoushi::*;
 #[cfg(feature = "okhttp")]
 pub(crate) use self::okhttp::*;
 #[cfg(feature = "okhttp")]
 pub(crate) use self::okio::*;
-#[cfg(feature = "tachiyomi")]
 pub(crate) use self::serialization::*;
+#[cfg(feature = "android")]
 pub(crate) use self::{android::*, java::*, kotlin::*};
+#[cfg(not(feature = "android"))]
+pub(crate) use self::{java::*, kotlin::*};
 
 // ---------------------------------------------------------------------------
 // HTTP bridge helpers (okhttp request objects -> plain data)
@@ -227,6 +228,7 @@ pub(crate) fn request_parts(vm: &mut Vm, v: JValue) -> Result<RequestParts, NatE
         method,
         headers,
         body,
+        enqueue_callback: _,
     }) = payload(vm, v)
     else {
         return Err(npe(vm));
@@ -315,6 +317,7 @@ pub(crate) fn native_tables() -> Vec<&'static [NativeEntry]> {
     #[cfg(feature = "okhttp")]
     out.push(okio::OKIO_TABLE);
     #[cfg(feature = "jsoup")]
+    #[cfg(feature = "jsoup")]
     out.push(jsoup::JSOUP_TABLE);
     #[cfg(feature = "android")]
     out.push(android::ANDROID_TABLE);
@@ -323,6 +326,8 @@ pub(crate) fn native_tables() -> Vec<&'static [NativeEntry]> {
     #[cfg(feature = "android")]
     out.push(androidx::preference::TABLE);
     #[cfg(feature = "tachiyomi")]
+    #[cfg(feature = "tachiyomi")]
+#[cfg(feature = "tachiyomi")]
     out.push(keiyoushi::KEIYOUSHI_TABLE);
     #[cfg(feature = "tachiyomi")]
     out.push(serialization::SERIALIZATION_TABLE);
@@ -340,6 +345,7 @@ pub(crate) fn native_tables() -> Vec<&'static [NativeEntry]> {
 pub(crate) fn nat_fatal(e: JvmError) -> NatErr {
     match e {
         JvmError::Uncaught(t) => NatErr::Throw(t),
+        JvmError::Suspended(id) => NatErr::Suspend(id),
         e => NatErr::Fatal(e),
     }
 }

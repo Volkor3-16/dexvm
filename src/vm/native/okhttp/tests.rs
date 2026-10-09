@@ -378,6 +378,7 @@ fn binary_body_plumbing() {
                 method: "GET".into(),
                 headers: Vec::new(),
                 body: None,
+                enqueue_callback: None,
             },
         )
         .unwrap();
@@ -453,7 +454,7 @@ fn binary_body_plumbing() {
 #[cfg(feature = "tachiyomi")]
 mod chain_tests {
     use super::*;
-    use crate::vm::native::keiyoushi::HttpData;
+    use crate::vm::native::http::{HttpData, HttpResp};
     use crate::vm::native::register_global;
     use std::rc::Rc;
 
@@ -475,7 +476,7 @@ mod chain_tests {
     fn interceptor_chain_runs_before_host() {
         register_global(FAKE_TABLE);
         with_vm(|vm| {
-            vm.http = Some(Rc::new(|_r: &HttpData| HttpResp::ok_bytes(vec![9, 8, 7])));
+            vm.http_sync = Some(std::sync::Arc::new(|_r: &HttpData| HttpResp::ok_bytes(vec![9, 8, 7])));
             let b = alloc(
                 vm,
                 "Lokhttp3/OkHttpClient$Builder;",
@@ -520,7 +521,7 @@ mod chain_tests {
     #[test]
     fn empty_chain_skips_interceptors() {
         with_vm(|vm| {
-            vm.http = Some(Rc::new(|_r: &HttpData| HttpResp::ok_bytes(vec![1])));
+            vm.http_sync = Some(std::sync::Arc::new(|_r: &HttpData| HttpResp::ok_bytes(vec![1])));
             let b = alloc(
                 vm,
                 "Lokhttp3/OkHttpClient$Builder;",
