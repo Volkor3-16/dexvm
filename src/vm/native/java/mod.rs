@@ -6,13 +6,10 @@ mod lang;
 mod math;
 mod net;
 mod nio;
-pub(crate) mod os;
 mod security;
 mod text;
 mod r#time;
 mod util;
-
-pub(crate) mod eu;
 
 pub(crate) mod javax_crypto;
 
@@ -29,18 +26,16 @@ pub(crate) use util::*;
 
 /// Collect every java.* native table for `register`.
 pub(crate) fn java_tables(out: &mut Vec<&'static [NativeEntry]>) {
-    out.extend(lang::LANG_TABLE);
-    out.extend(math::MATH_TABLE);
-    out.extend(io::IO_TABLE);
+    out.extend(lang::LANG_TABLE.iter().copied());
+    out.extend(math::MATH_TABLE.iter().copied());
+    out.extend(io::IO_TABLE.iter().copied());
     #[cfg(feature = "android")]
-    out.extend(io::FILE_TABLE);
-    out.extend(net::NET_TABLE);
-    out.extend(nio::NIO_TABLE);
-    out.extend(os::BUILD_TABLE);
-    out.extend(security::SECURITY_TABLE);
+    out.extend(io::FILE_TABLE.iter().copied());
+    out.extend(net::NET_TABLE.iter().copied());
+    out.extend(nio::NIO_TABLE.iter().copied());
+    out.extend(security::SECURITY_TABLE.iter().copied());
     out.push(javax_crypto::JAVAX_CRYPTO_TABLE);
-    out.extend(text::TEXT_TABLE);
-    out.extend(r#time::TIME_TABLE);
-    out.extend(util::UTIL_TABLE);
-    out.extend(eu::TABLE);
+    out.extend(text::TEXT_TABLE.iter().copied());
+    out.extend(r#time::TIME_TABLE.iter().copied());
+    out.extend(util::UTIL_TABLE.iter().copied());
 }

@@ -17,7 +17,6 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use crate::context::{Context, ContextError, SandboxOptions, SettingDefinition, SettingValue};
 use crate::manifest::{AppManifest, ManifestError};
@@ -27,7 +26,7 @@ use crate::vm::object::Native;
 use crate::vm::value::JValue;
 use crate::vm::Vm;
 
-pub use crate::vm::native::http::{HttpData, HttpResp};
+pub use crate::vm::native::keiyoushi::{HttpData, HttpResp};
 
 /// A live engine: one extension dex plus the host bridge.
 pub struct Keiyoushi {
@@ -127,20 +126,23 @@ impl Keiyoushi {
         Keiyoushi::new(&data)
     }
 
-    /// Registers a sync HTTP callback (for backward compatibility).
     pub fn set_http<F>(&mut self, f: F)
+    where
+        F: Fn(&HttpData) -> HttpResp + 'static,
+    {
+        self.ctx.set_http(f);
+    }
+
+    pub fn set_http_rc(&mut self, f: Rc<dyn Fn(&HttpData) -> HttpResp>) {
+        self.ctx.set_http(move |r| f(r));
+    }
+
+    /// Registers a sync HTTP callback (replay mode): takes HttpData, returns HttpResp immediately.
+    pub fn set_http_sync<F>(&mut self, f: F)
     where
         F: Fn(&HttpData) -> HttpResp + Send + Sync + 'static,
     {
         self.ctx.set_http_sync(f);
-    }
-
-    /// Registers an async HTTP callback using Arc (for backward compatibility).
-    pub fn set_http_rc(&mut self, f: Arc<dyn Fn(&HttpData) -> HttpResp + Send + Sync>) {
-        self.ctx.set_http(move |req: HttpData, respond: Box<dyn FnOnce(HttpResp) + Send + 'static>| {
-            let resp = f(&req);
-            respond(resp);
-        });
     }
 
     /// Host-owned per-host header resolver (User-Agent + Cookie). The
@@ -149,7 +151,7 @@ impl Keiyoushi {
     /// request does not set them itself.
     pub fn set_host_headers<F>(&mut self, f: F)
     where
-        F: Fn(&str) -> (Option<String>, Option<String>) + Send + Sync + 'static,
+        F: Fn(&str) -> (Option<String>, Option<String>) + 'static,
     {
         self.ctx.set_host_headers(f);
     }
@@ -342,11 +344,6 @@ impl Keiyoushi {
     }
 
     pub fn popular(&mut self, src: &Source, page: i32) -> Result<MangaPages, JvmError> {
-        let src_class = {
-            let vm = self.ctx.vm();
-            vm.arena.objects.get(src.inst as usize).map(|o| vm.str_of(vm.classes[o.class as usize].descriptor).to_string()).unwrap_or("NULL".to_string())
-        };
-        eprintln!("DEBUG popular: ENTRY, src.inst={}, class={}", src.inst, src_class);
         if let Some(mangas) = self.try_fetch_observable(
             src,
             "fetchPopularManga",
@@ -355,15 +352,6 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
-        eprintln!("DEBUG popular: try_fetch_observable returned None");
-        // Prefer coroutine API if the extension implements it (modern keiyoushi).
-        // Fall back to legacy request/parse only for older extensions.
-        let has_coro = self.has_coro_override(src, "getPopularManga");
-        eprintln!("DEBUG popular: has_coro_override = {}", has_coro);
-        if has_coro {
-            return self.popular_coro(src, page);
-        }
-        // Legacy path: request/parse
         let req = self.ctx.invoke_on(
             src.inst,
             "popularMangaRequest",
@@ -389,12 +377,6 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
-        // Prefer coroutine API if the extension implements it (modern keiyoushi).
-        // Fall back to legacy request/parse only for older extensions.
-        if self.has_coro_override(src, "getLatestUpdates") {
-            return self.latest_coro(src, page);
-        }
-        // Legacy path: request/parse
         let req = self.ctx.invoke_on(
             src.inst,
             "latestUpdatesRequest",
@@ -433,12 +415,7 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
-        // Prefer coroutine API if the extension implements it (modern keiyoushi).
-        // Fall back to legacy request/parse only for older extensions.
-        if self.has_coro_override(src, "getSearchManga") {
-            return self.search_coro(src, page, query, filters);
-        }
-        // Legacy path: request/parse
+
         let req = self.ctx.invoke_on(
             src.inst,
             "searchMangaRequest",
@@ -464,76 +441,6 @@ impl Keiyoushi {
     /// helper runs the override when present and unwraps the synchronously
     /// evaluated Observable:
     /// - missing method / inner `UnsupportedOperationException` → `Ok(None)`
-    /// Checks if a JvmError is an Uncaught UnsupportedOperationException.
-    fn is_unsupported_operation(&mut self, err: &JvmError) -> bool {
-        if let JvmError::Uncaught(obj_id) = err {
-            let vm = self.ctx.vm();
-            if let Some(obj) = vm.arena.objects.get(*obj_id as usize) {
-                let class_desc = vm.class_desc_str(obj.class);
-                return class_desc == "Ljava/lang/UnsupportedOperationException;";
-            }
-        }
-        false
-    }
-
-    /// Tries the RxJava-style `fetch*` override for a source operation.
-    ///
-    /// Old-style sources (M+) override `fetchSearchManga` & friends and leave
-    /// the request/parse pair as deliberate
-    /// `throw UnsupportedOperationException` stubs; coroutine-era sources
-    /// Checks if the source extension has a coroutine override for the given method.
-    /// Modern keiyoushi extensions implement suspend functions like `getPopularManga`,
-    /// `getSearchManga`, `getLatestUpdates` instead of the legacy request/parse pair.
-    fn has_coro_override(&mut self, src: &Source, method: &str) -> bool {
-        let vm = self.ctx.vm();
-        let obj = match vm.arena.objects.get(src.inst as usize) {
-            Some(o) => o,
-            None => return false,
-        };
-        let class_id = obj.class;
-        let sig = match method {
-            "getPopularManga" => "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
-            "getSearchManga" => "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
-            "getLatestUpdates" => "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
-            _ => return false,
-        };
-        let name = vm.intern(method);
-        let sig_id = vm.intern(sig);
-        eprintln!("DEBUG has_coro_override: method={}, class_id={}, name_id={}, sig_id={}", method, class_id, name, sig_id);
-        // Check if method exists in class hierarchy (virtual or direct)
-        fn find_method(vm: &Vm, class: u32, name: u32, sig: u32) -> bool {
-            let class_def = &vm.classes[class as usize];
-            eprintln!("DEBUG find_method: class={}, dispatch_keys={}", class, class_def.dispatch.len());
-            if class_def.dispatch.contains_key(&(name, sig)) {
-                eprintln!("DEBUG find_method: FOUND in dispatch");
-                return true;
-            }
-            if let Some(superclass) = class_def.superclass {
-                eprintln!("DEBUG find_method: checking superclass {}", superclass);
-                if find_method(vm, superclass, name, sig) {
-                    return true;
-                }
-            }
-            for &interface in &class_def.interfaces {
-                eprintln!("DEBUG find_method: checking interface {}", interface);
-                if find_method(vm, interface, name, sig) {
-                    return true;
-                }
-            }
-            false
-        }
-        find_method(vm, class_id, name, sig_id)
-    }
-
-    /// Tries the RxJava-style `fetch*` override for a source operation.
-    ///
-    /// Old-style sources (M+) override `fetchSearchManga` & friends and leave
-    /// the request/parse pair as deliberate
-    /// `throw UnsupportedOperationException` stubs; coroutine-era sources
-    /// inherit the Rx default which delegates back to those same hooks. This
-    /// helper runs the override when present and unwraps the synchronously
-    /// evaluated Observable:
-    /// - missing method / inner `UnsupportedOperationException` → `Ok(None)`
     ///   (caller falls back to the request+parse path),
     /// - success → `Ok(Some(value))` (the single emitted item).
     fn try_fetch_observable(
@@ -545,42 +452,17 @@ impl Keiyoushi {
     ) -> Result<Option<JValue>, JvmError> {
         use crate::vm::object::Native;
 
-        eprintln!("DEBUG try_fetch_observable: method={}", method);
         let ob = match self.ctx.invoke_on(src.inst, method, sig, args) {
-            Ok(v) => {
-                eprintln!("DEBUG try_fetch_observable: invoke_on succeeded");
-                v
-            }
-            Err(JvmError::Resolution(_)) => {
-                eprintln!("DEBUG try_fetch_observable: Resolution error");
-                return Ok(None);
-            }
-            Err(e) if self.is_unsupported_operation(&e) => {
-                eprintln!("DEBUG try_fetch_observable: UnsupportedOperationException caught");
-                return Ok(None);
-            }
-            Err(e) => {
-                eprintln!("DEBUG try_fetch_observable: other error: {:?}", e);
-                return Err(e);
-            }
+            Ok(v) => v,
+            Err(JvmError::Resolution(_)) => return Ok(None),
+            Err(e) => return Err(e),
         };
 
         let (values, error) = match self.ctx.vm().payload_of(ob) {
-            Some(Native::RxObservable { values, error, .. }) => {
-                eprintln!("DEBUG try_fetch_observable: found RxObservable with {} values", values.len());
-                (values.clone(), error)
-            }
-            Some(other) => {
-                eprintln!("DEBUG try_fetch_observable: payload is NOT RxObservable (variant)");
-                return Ok(None);
-            }
-            None => {
-                eprintln!("DEBUG try_fetch_observable: payload_of returned None");
-                return Ok(None);
-            }
+            Some(Native::RxObservable { values, error, .. }) => (values.clone(), error),
+            _ => return Ok(None),
         };
 
-        eprintln!("DEBUG try_fetch_observable: checking error field, error = {:?}", error);
         if let JValue::Obj(err_id) = error {
             let class = {
                 let vm = self.ctx.vm();
@@ -594,15 +476,11 @@ impl Keiyoushi {
                 let vm = self.ctx.vm();
                 vm.class_desc_str(class)
             };
-            eprintln!("DEBUG try_fetch_observable: error class_desc = '{}'", class_desc);
-            // Match both dex descriptor format and Java dot notation
-            if class_desc == "Ljava/lang/UnsupportedOperationException;" || class_desc == "java.lang.UnsupportedOperationException" {
-                eprintln!("DEBUG try_fetch_observable: caught UnsupportedOperationException in Observable, returning Ok(None)");
+            if class_desc == "Ljava/lang/UnsupportedOperationException;" {
                 return Ok(None);
             }
             return Err(JvmError::Uncaught(err_id));
         }
-        eprintln!("DEBUG try_fetch_observable: error is NOT JValue::Obj, returning values");
 
         Ok(values.into_iter().next())
     }
@@ -733,7 +611,6 @@ impl Keiyoushi {
             Ok(v) => Ok(v),
             Err(crate::vm::NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
             Err(crate::vm::NatErr::Fatal(e)) => Err(e),
-            Err(crate::vm::NatErr::Suspend(cont_id)) => Err(JvmError::Suspended(cont_id)),
         }
     }
 
@@ -941,9 +818,7 @@ impl Keiyoushi {
         };
         let mut out = Vec::with_capacity(items.len());
         for f in items {
-            let Some(id) = f.as_obj_opt() else {
-                continue;
-            };
+            let id = f.as_obj();
             let kind = self.filter_kind(id);
             if let Some(Native::SFilter {
                 name,
@@ -961,9 +836,7 @@ impl Keiyoushi {
                         options: self.str_options(options)?,
                     });
                     for c in children {
-                        let Some(cid) = c.as_obj_opt() else {
-                            continue;
-                        };
+                        let cid = c.as_obj();
                         let k = self.filter_kind(cid);
                         if let Some(Native::SFilter {
                             name,
@@ -1098,70 +971,25 @@ impl Keiyoushi {
     /// modern keiyoushi sources (request/parse pairs are stubbed there).
     pub fn popular_coro(&mut self, src: &Source, page: i32) -> Result<MangaPages, JvmError> {
         let cont = self.suspend_cont()?;
-        match self.ctx.invoke_on(
+        let out = self.ctx.invoke_on(
             src.inst,
             "getPopularManga",
             "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[JValue::Int(page), cont],
-        ) {
-            Ok(out) => self.manga_pages(out),
-            Err(e) => {
-                // Fallback to non-coro path if suspend function fails (e.g., NPE in state machine)
-                eprintln!(
-                    "popular_coro: suspend failed ({}), falling back to legacy request/parse",
-                    e
-                );
-                // Fall back to legacy request/parse directly, NOT to popular() to avoid loop
-                let req = self.ctx.invoke_on(
-                    src.inst,
-                    "popularMangaRequest",
-                    "(I)Lokhttp3/Request;",
-                    &[JValue::Int(page)],
-                )?;
-                let resp = self.execute(req)?;
-                let mangas = self.ctx.invoke_on(
-                    src.inst,
-                    "popularMangaParse",
-                    "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
-                    &[resp],
-                )?;
-                self.manga_pages(mangas)
-            }
-        }
+        )?;
+        self.manga_pages(out)
     }
 
     /// `getLatestUpdates` (suspend).
     pub fn latest_coro(&mut self, src: &Source, page: i32) -> Result<MangaPages, JvmError> {
         let cont = self.suspend_cont()?;
-        match self.ctx.invoke_on(
+        let out = self.ctx.invoke_on(
             src.inst,
             "getLatestUpdates",
             "(ILkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[JValue::Int(page), cont],
-        ) {
-            Ok(out) => self.manga_pages(out),
-            Err(e) => {
-                eprintln!(
-                    "latest_coro: suspend failed ({}), falling back to legacy request/parse",
-                    e
-                );
-                // Fall back to legacy request/parse directly, NOT to latest() to avoid loop
-                let req = self.ctx.invoke_on(
-                    src.inst,
-                    "latestUpdatesRequest",
-                    "(I)Lokhttp3/Request;",
-                    &[JValue::Int(page)],
-                )?;
-                let resp = self.execute(req)?;
-                let mangas = self.ctx.invoke_on(
-                    src.inst,
-                    "latestUpdatesParse",
-                    "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
-                    &[resp],
-                )?;
-                self.manga_pages(mangas)
-            }
-        }
+        )?;
+        self.manga_pages(out)
     }
 
     /// `getSearchManga` (suspend), with the query plus per-filter states.
@@ -1175,32 +1003,13 @@ impl Keiyoushi {
         let flist = self.build_filter_list(filters)?;
         let query_obj = self.ctx.vm().alloc_string(query);
         let cont = self.suspend_cont()?;
-        match self.ctx.invoke_on(
+        let out = self.ctx.invoke_on(
             src.inst,
             "getSearchManga",
             "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[JValue::Int(page), query_obj, flist, cont],
-        ) {
-            Ok(out) => self.manga_pages(out),
-            Err(e) => {
-                eprintln!("search_coro: suspend failed ({}), falling back to legacy request/parse", e);
-                // Fall back to legacy request/parse directly, NOT to search() to avoid loop
-                let req = self.ctx.invoke_on(
-                    src.inst,
-                    "searchMangaRequest",
-                    "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;)Lokhttp3/Request;",
-                    &[JValue::Int(page), query_obj, flist],
-                )?;
-                let resp = self.execute(req)?;
-                let mangas = self.ctx.invoke_on(
-                    src.inst,
-                    "searchMangaParse",
-                    "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
-                    &[resp],
-                )?;
-                self.manga_pages(mangas)
-            }
-        }
+        )?;
+        self.manga_pages(out)
     }
 
     /// `getPageList` (suspend) against a synthetic chapter ref.
@@ -1217,32 +1026,13 @@ impl Keiyoushi {
             Some(empty_chapter(url, name)),
         ));
         let cont = self.suspend_cont()?;
-        match self.ctx.invoke_on(
+        let out = self.ctx.invoke_on(
             src.inst,
             "getPageList",
             "(Leu/kanade/tachiyomi/source/model/SChapter;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;",
             &[c, cont],
-        ) {
-            Ok(out) => self.read_page_list(out),
-            Err(e) => {
-                eprintln!("pages_coro: suspend failed ({}), falling back to legacy request/parse", e);
-                // Fall back to legacy request/parse directly, NOT to pages() to avoid loop
-                let req = self.ctx.invoke_on(
-                    src.inst,
-                    "pageListRequest",
-                    "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;",
-                    &[c],
-                )?;
-                let resp = self.execute(req)?;
-                let pages = self.ctx.invoke_on(
-                    src.inst,
-                    "pageListParse",
-                    "(Lokhttp3/Response;)Ljava/util/List;",
-                    &[resp],
-                )?;
-                self.read_page_list(pages)
-            }
-        }
+        )?;
+        self.read_page_list(out)
     }
 
     /// `getMangaUpdate` (suspend) — the combined details+chapters entry point
@@ -1267,7 +1057,7 @@ impl Keiyoushi {
             Some(Native::List(Vec::new())),
         ));
         let cont = self.suspend_cont()?;
-        match self.ctx.invoke_on(
+        self.ctx.invoke_on(
             src.inst,
             "getMangaUpdate",
             "(Leu/kanade/tachiyomi/source/model/SManga;Ljava/util/List;ZZLkotlin/coroutines/Continuation;)Ljava/lang/Object;",
@@ -1278,37 +1068,23 @@ impl Keiyoushi {
                 JValue::Int(i32::from(fetch_chapters)),
                 cont,
             ],
-        ) {
-            Ok(out) => Ok(out),
-            Err(e) => {
-                eprintln!("manga_update_coro: suspend failed ({}), falling back to details/chapters", e);
-                // Fallback handled by caller (manga_update_details / manga_update_chapters)
-                Err(e)
-            }
-        }
+        )
     }
 
     /// `getMangaUpdate(..., true, false)` read as a manga.
     pub fn manga_update_details(&mut self, src: &Source, manga: &Manga) -> Result<Manga, JvmError> {
-        match self.manga_update_coro(src, manga, true, false) {
-            Ok(out) => {
-                let JValue::Obj(out_id) = out else {
-                    return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
-                };
-                let smanga = self.ctx.invoke_on(
-                    out_id,
-                    "getManga",
-                    "()Leu/kanade/tachiyomi/source/model/SManga;",
-                    &[],
-                )?;
-                self.read_manga(smanga)?
-                    .ok_or_else(|| JvmError::Resolution("getMangaUpdate: not a SManga".into()))
-            }
-            Err(e) => {
-                eprintln!("manga_update_details: getMangaUpdate failed ({}), falling back to classic manga_details", e);
-                self.manga_details(src, manga)
-            }
-        }
+        let out = self.manga_update_coro(src, manga, true, false)?;
+        let JValue::Obj(out_id) = out else {
+            return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
+        };
+        let smanga = self.ctx.invoke_on(
+            out_id,
+            "getManga",
+            "()Leu/kanade/tachiyomi/source/model/SManga;",
+            &[],
+        )?;
+        self.read_manga(smanga)?
+            .ok_or_else(|| JvmError::Resolution("getMangaUpdate: not a SManga".into()))
     }
 
     /// `getMangaUpdate(..., false, true)` read as a chapter list.
@@ -1317,21 +1093,14 @@ impl Keiyoushi {
         src: &Source,
         manga: &Manga,
     ) -> Result<Vec<Chapter>, JvmError> {
-        match self.manga_update_coro(src, manga, false, true) {
-            Ok(out) => {
-                let JValue::Obj(out_id) = out else {
-                    return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
-                };
-                let list = self
-                    .ctx
-                    .invoke_on(out_id, "getChapters", "()Ljava/util/List;", &[])?;
-                self.read_chapter_list(list)
-            }
-            Err(e) => {
-                eprintln!("manga_update_chapters: getMangaUpdate failed ({}), falling back to classic chapters", e);
-                self.chapters(src, manga)
-            }
-        }
+        let out = self.manga_update_coro(src, manga, false, true)?;
+        let JValue::Obj(out_id) = out else {
+            return Err(JvmError::Resolution("getMangaUpdate: not an object".into()));
+        };
+        let list = self
+            .ctx
+            .invoke_on(out_id, "getChapters", "()Ljava/util/List;", &[])?;
+        self.read_chapter_list(list)
     }
 
     /// Fetches the plaintext bytes of a page image through the extension's

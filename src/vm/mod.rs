@@ -9,7 +9,6 @@ pub mod object;
 pub mod value;
 
 use std::collections::{HashMap, VecDeque};
-use crate::vm::interpret::Frame;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -29,10 +28,6 @@ pub enum NatErr {
     Throw(u32),
     /// VM-level failure, not a Java exception.
     Fatal(JvmError),
-
-    /// Native yielded the current coroutine; `cont_id` is the parked continuation ID.
-    /// The interpreter should save the current frame and return control to the caller.
-    Suspend(u64),
 }
 
 /// Native bridge signature. `args` includes the receiver for instance methods.
@@ -107,7 +102,7 @@ pub struct FieldRef {
 
 /// Host callback notified whenever the guest changes a `SharedPreferences`
 /// value. Receives the preference key and its new value.
-pub type SettingsUpdateCallback = std::sync::Arc<dyn Fn(&str, &PreferenceValue) + Send + Sync>;
+pub type SettingsUpdateCallback = std::rc::Rc<dyn Fn(&str, &PreferenceValue)>;
 
 pub struct Vm {
     /// All dex files of the loaded program. Ids in dex tables (strings,
@@ -132,7 +127,7 @@ pub struct Vm {
     pub monitors: HashMap<u32, usize>,
     pub method_refs: HashMap<(u32, u32), MethodRef>,
     pub field_refs: HashMap<(u32, u32), FieldRef>,
-    pub out: Box<dyn Write + Send + Sync>,
+    pub out: Box<dyn Write>,
     pub budget: i64,
     pub depth_limit: usize,
     /// Nested VM-entry depth (each entry = one Rust stack level via [`interpret::run`]).
@@ -146,16 +141,18 @@ pub struct Vm {
     /// Sandbox capability grants checked by host natives.
     pub perms: crate::permission::Permissions,
     pub array_classes: HashMap<(u32, u32), u32>,
-    /// Sync HTTP callback (legacy): takes HttpData, returns HttpResp immediately.
-    pub http_sync: Option<native::http::HttpCall>,
-    /// Async HTTP callback: takes HttpData and a response handler for suspend/resume.
-    pub http_async: Option<native::http::HttpCallback>,
+    #[cfg(feature = "tachiyomi")]
+    pub http: Option<native::keiyoushi::HttpCall>,
+    /// Sync HTTP callback (replay mode): takes HttpData, returns HttpResp immediately.
+    #[cfg(feature = "tachiyomi")]
+    pub http_sync: Option<native::keiyoushi::HttpCall>,
     /// Host callback resolving per-host request headers (User-Agent and
     /// Cookie) from a host-owned store. Called right before each HTTP
     /// request with the lowercase host of the request URL (the same string
     /// `reqwest::Url::host_str()` yields); the returned values are injected
     /// as headers only when the request does not already set them.
-    pub host_headers: Option<native::http::HostHeaderFn>,
+    #[cfg(feature = "tachiyomi")]
+    pub host_headers: Option<native::keiyoushi::HostHeaderFn>,
     /// Real host directory backing `Context.getCacheDir()` (created on first
     /// use so extension cache logic runs against a genuine filesystem).
     pub cache_root: Option<String>,
@@ -176,19 +173,11 @@ pub struct Vm {
     /// class count when the injekt registry was last rebuilt; the scan re-runs
     /// whenever new classes have been loaded since.
     injekt_scanned_classes: usize,
-    /// Parked coroutine continuations awaiting async host callback.
-    /// Key = continuation ID, Value = (Frame, result_register_index).
-    continuations: HashMap<u64, (Frame, usize)>,
-    /// Callbacks for enqueued HTTP calls awaiting async response.
-    /// Key = continuation ID, Value = callback object (Kotlin Callback).
-    enqueue_callbacks: HashMap<u64, JValue>,
-    /// Next continuation ID to assign.
-    next_cont_id: u64,
     loading: Vec<(u32, usize)>,
 }
 
 impl Vm {
-    pub fn new(dexes: Vec<DexFile>, out: Box<dyn Write + Send + Sync>) -> Result<Vm, JvmError> {
+    pub fn new(dexes: Vec<DexFile>, out: Box<dyn Write>) -> Result<Vm, JvmError> {
         let mut vm = Vm {
             dexes,
             resources: HashMap::new(),
@@ -232,16 +221,16 @@ impl Vm {
             loading: Vec::new(),
             injekt_type_by_subclass: HashMap::new(),
             injekt_scanned_classes: 0,
-            continuations: HashMap::new(),
-            enqueue_callbacks: HashMap::new(),
-            next_cont_id: 0,
             cache_root: None,
             shared_preferences: HashMap::new(),
             shared_preferences_path: None,
             shared_preferences_loaded: false,
             settings_update: None,
+            #[cfg(feature = "tachiyomi")]
+            http: None,
+            #[cfg(feature = "tachiyomi")]
             http_sync: None,
-            http_async: None,
+            #[cfg(feature = "tachiyomi")]
             host_headers: None,
             host_natives: Vec::new(),
             perms: crate::permission::Permissions::new(),
@@ -332,102 +321,92 @@ impl Vm {
         let mut pairs: Vec<(String, String)> = Vec::new();
         let get_type_cls = "Luy/kohesive/injekt/api/FullTypeReference;";
         let factory_cls = "Luy/kohesive/injekt/api/InjektFactory;";
-        // Scan all dex files for all classes (not just loaded ones)
-        for dex in &self.dexes {
-            for class_def in &dex.classes {
-                let class_desc = dex.type_descriptor(class_def.class_idx).to_string();
-                let Some(class_data) = &class_def.class_data else {
+        for class in 0..self.classes.len() as u32 {
+            for m in &self.classes[class as usize].methods {
+                let Some(code) = &m.code else {
                     continue;
                 };
-                // Scan both direct and virtual methods
-                for encoded in class_data.direct_methods.iter().chain(&class_data.virtual_methods) {
-                    let m = &dex.methods[encoded.method_idx as usize];
-                    let Some(code) = &encoded.code else {
-                        continue;
-                    };
-                    let Ok(decoded) = decode_all(&code.insns) else {
-                        continue;
-                    };
-                    // register -> dex type id of the last `new-instance`.
-                    let mut last_new: Vec<Option<u32>> = vec![None; code.registers_size as usize];
-                    // register -> subclass descriptor of the last getType result.
-                    let mut type_reg: Vec<Option<String>> = vec![None; code.registers_size as usize];
-                    // set by getType; the next move-result carries its value.
-                    let mut pending_get_type: Option<String> = None;
-                    // set by getInstance; the next move-result carries its value.
-                    let mut want_result: Option<String> = None;
-                    // (result reg, subclass) awaiting the immediate check-cast.
-                    let mut pending_inst: Option<(u8, String)> = None;
-                    for insn in decoded.insns.iter() {
-                        match insn {
-                            Insn::NewInstance(reg, type_idx) => {
-                                if let Some(slot) = last_new.get_mut(*reg as usize) {
-                                    *slot = Some(*type_idx);
-                                }
+                let Ok(decoded) = decode_all(&code.insns) else {
+                    continue;
+                };
+                let dex = self.dex_at(m.dex_idx);
+                // register -> dex type id of the last `new-instance`.
+                let mut last_new: Vec<Option<u32>> = vec![None; code.registers_size as usize];
+                // register -> subclass descriptor of the last getType result.
+                let mut type_reg: Vec<Option<String>> = vec![None; code.registers_size as usize];
+                // set by getType; the next move-result carries its value.
+                let mut pending_get_type: Option<String> = None;
+                // set by getInstance; the next move-result carries its value.
+                let mut want_result: Option<String> = None;
+                // (result reg, subclass) awaiting the immediate check-cast.
+                let mut pending_inst: Option<(u8, String)> = None;
+                for insn in decoded.insns.iter() {
+                    match insn {
+                        Insn::NewInstance(reg, type_idx) => {
+                            if let Some(slot) = last_new.get_mut(*reg as usize) {
+                                *slot = Some(*type_idx);
                             }
-                            Insn::MoveResult(reg) | Insn::MoveResultWide(reg) => {
-                                if let Some(sub) = pending_get_type.take() {
-                                    if let Some(slot) = type_reg.get_mut(*reg as usize) {
-                                        *slot = Some(sub);
-                                    }
-                                }
-                                if let Some(sub) = want_result.take() {
-                                    pending_inst = Some((*reg, sub));
-                                }
-                                if let Some(slot) = last_new.get_mut(*reg as usize) {
-                                    *slot = None;
-                                }
-                            }
-                            Insn::Invoke(_, method_idx, args) => {
-                                let Some(mref) = dex.methods.get(*method_idx as usize) else {
-                                    continue;
-                                };
-                                let name = dex
-                                    .strings
-                                    .get(mref.name as usize)
-                                    .map(|s| s.as_ref())
-                                    .unwrap_or("");
-                                let owner = dex
-                                    .strings
-                                    .get(dex.types.get(mref.class as usize).copied().unwrap_or(0)
-                                        as usize)
-                                    .map(|s| s.as_ref())
-                                    .unwrap_or("");
-                                match name {
-                                    "getType" if owner == get_type_cls => {
-                                        let recv = args.reg_at(0) as usize;
-                                        if let Some(Some(sid)) = last_new.get(recv) {
-                                            pending_get_type =
-                                                Some(dex.type_descriptor(*sid).to_string());
-                                        }
-                                    }
-                                    "getInstance" if owner == factory_cls => {
-                                        let targ = args.reg_at(1) as usize;
-                                        if let Some(Some(sub)) = type_reg.get(targ) {
-                                            want_result = Some(sub.clone());
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            Insn::CheckCast(reg, type_idx) => {
-                                if let Some((r, sub)) = pending_inst.take() {
-                                    if r == *reg {
-                                        let t = dex.type_descriptor(*type_idx);
-                                        pairs.push((sub, t.to_string()));
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
+                        Insn::MoveResult(reg) | Insn::MoveResultWide(reg) => {
+                            if let Some(sub) = pending_get_type.take() {
+                                if let Some(slot) = type_reg.get_mut(*reg as usize) {
+                                    *slot = Some(sub);
+                                }
+                            }
+                            if let Some(sub) = want_result.take() {
+                                pending_inst = Some((*reg, sub));
+                            }
+                            if let Some(slot) = last_new.get_mut(*reg as usize) {
+                                *slot = None;
+                            }
+                        }
+                        Insn::Invoke(_, method_idx, args) => {
+                            let Some(mref) = dex.methods.get(*method_idx as usize) else {
+                                continue;
+                            };
+                            let name = dex
+                                .strings
+                                .get(mref.name as usize)
+                                .map(|s| s.as_ref())
+                                .unwrap_or("");
+                            let owner = dex
+                                .strings
+                                .get(dex.types.get(mref.class as usize).copied().unwrap_or(0)
+                                    as usize)
+                                .map(|s| s.as_ref())
+                                .unwrap_or("");
+                            match name {
+                                "getType" if owner == get_type_cls => {
+                                    let recv = args.reg_at(0) as usize;
+                                    if let Some(Some(sid)) = last_new.get(recv) {
+                                        pending_get_type =
+                                            Some(dex.type_descriptor(*sid).to_string());
+                                    }
+                                }
+                                "getInstance" if owner == factory_cls => {
+                                    let targ = args.reg_at(1) as usize;
+                                    if let Some(Some(sub)) = type_reg.get(targ) {
+                                        want_result = Some(sub.clone());
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        Insn::CheckCast(reg, type_idx) => {
+                            if let Some((r, sub)) = pending_inst.take() {
+                                if r == *reg {
+                                    let t = dex.type_descriptor(*type_idx);
+                                    pairs.push((sub, t.to_string()));
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
         }
         // Phase 2 (mutable): intern and record.
-        eprintln!("DEBUG scan_injekt_types: found {} pairs", pairs.len());
         for (sub, t) in pairs {
-            eprintln!("DEBUG scan_injekt_types: pair = ('{}', '{}')", sub, t);
             let sub_id = self.intern(&sub);
             let t_id = self.intern(&t);
             self.injekt_type_by_subclass.insert(sub_id, t_id);
@@ -456,21 +435,6 @@ impl Vm {
             return Ok(c);
         }
         let desc = self.dex_at(dex_idx).type_descriptor(type_id).to_string();
-        // Handle primitive type descriptors
-        if desc.len() == 1 {
-            match desc.as_bytes()[0] {
-                b'Z' => return self.ensure_class_by_desc("Ljava/lang/Boolean;"),
-                b'B' => return self.ensure_class_by_desc("Ljava/lang/Byte;"),
-                b'C' => return self.ensure_class_by_desc("Ljava/lang/Character;"),
-                b'S' => return self.ensure_class_by_desc("Ljava/lang/Short;"),
-                b'I' => return self.ensure_class_by_desc("Ljava/lang/Integer;"),
-                b'J' => return self.ensure_class_by_desc("Ljava/lang/Long;"),
-                b'F' => return self.ensure_class_by_desc("Ljava/lang/Float;"),
-                b'D' => return self.ensure_class_by_desc("Ljava/lang/Double;"),
-                b'V' => return Err(JvmError::Resolution("void type has no class".into())),
-                _ => {}
-            }
-        }
         if desc.starts_with('[') {
             let desc_id = self.intern(&desc);
             if let Some(&c) = self.class_by_desc.get(&desc_id) {
@@ -512,21 +476,6 @@ impl Vm {
             return Ok(c);
         }
         let desc = self.str_of(desc_id).to_string();
-        // Handle primitive type descriptors (single-character JVM type descriptors)
-        if desc.len() == 1 {
-            match desc.as_bytes()[0] {
-                b'Z' => return self.ensure_class_by_desc("Ljava/lang/Boolean;"),
-                b'B' => return self.ensure_class_by_desc("Ljava/lang/Byte;"),
-                b'C' => return self.ensure_class_by_desc("Ljava/lang/Character;"),
-                b'S' => return self.ensure_class_by_desc("Ljava/lang/Short;"),
-                b'I' => return self.ensure_class_by_desc("Ljava/lang/Integer;"),
-                b'J' => return self.ensure_class_by_desc("Ljava/lang/Long;"),
-                b'F' => return self.ensure_class_by_desc("Ljava/lang/Float;"),
-                b'D' => return self.ensure_class_by_desc("Ljava/lang/Double;"),
-                b'V' => return Err(JvmError::Resolution("void type has no class".into())),
-                _ => {}
-            }
-        }
         if let Some(inner) = desc.strip_prefix('[') {
             // find the dex type id for the inner descriptor of this array
             // descriptor (any dex), so array classes link to the exact
@@ -799,21 +748,6 @@ impl Vm {
 
     fn load_shim_class(&mut self, desc_id: u32) -> Result<u32, JvmError> {
         let desc = self.str_of(desc_id).to_string();
-        // Handle primitive type descriptors (single-character JVM type descriptors)
-        if desc.len() == 1 {
-            match desc.as_bytes()[0] {
-                b'Z' => return self.ensure_class_by_desc("Ljava/lang/Boolean;"),
-                b'B' => return self.ensure_class_by_desc("Ljava/lang/Byte;"),
-                b'C' => return self.ensure_class_by_desc("Ljava/lang/Character;"),
-                b'S' => return self.ensure_class_by_desc("Ljava/lang/Short;"),
-                b'I' => return self.ensure_class_by_desc("Ljava/lang/Integer;"),
-                b'J' => return self.ensure_class_by_desc("Ljava/lang/Long;"),
-                b'F' => return self.ensure_class_by_desc("Ljava/lang/Float;"),
-                b'D' => return self.ensure_class_by_desc("Ljava/lang/Double;"),
-                b'V' => return Err(JvmError::Resolution("void type has no class".into())),
-                _ => {}
-            }
-        }
         let def = SHIM_CLASSES
             .iter()
             .find(|d| d.desc == desc)
@@ -857,22 +791,11 @@ impl Vm {
             .collect();
         let host = self.host_natives.clone();
         shim_natives.extend(host.iter());
-        let shim_natives_instance: Vec<_> = shim_natives
-            .iter()
-            .filter(|ne| ne.class == desc && ne.instance)
-            .cloned()
-            .collect();
-        let shim_natives_static: Vec<_> = shim_natives
-            .iter()
-            .filter(|ne| ne.class == desc && !ne.instance)
-            .cloned()
-            .collect();
-
-        // Process instance methods
-        for ne in shim_natives_instance {
+        for ne in shim_natives.into_iter().filter(|ne| ne.class == desc) {
             let name = self.intern(ne.name);
             let sig = self.intern(ne.sig);
             let (args, ret) = parse_sig(ne.sig);
+            let static_method = !ne.instance;
             let slot = methods.len() as u32;
             dispatch.insert((name, sig), slot);
             methods.push(Method {
@@ -882,42 +805,14 @@ impl Vm {
                 sig,
                 ret: self.intern(ret),
                 args: args.iter().map(|a| self.intern(a)).collect(),
-                access_flags: class::ACC_PUBLIC,
-                static_method: false,
+                access_flags: class::ACC_PUBLIC | if static_method { ACC_STATIC } else { 0 },
+                static_method,
                 dex_idx: 0,
                 native_key: Some((desc_id, name, sig)),
                 native_decl: false,
                 code: None,
                 insns: OnceLock::new(),
             });
-        }
-        // Process static methods (skip static fields which have field descriptors without parentheses)
-        for ne in shim_natives_static {
-            let sig_str = ne.sig;
-            // Only process as method if signature looks like a method signature (contains '(' and ')')
-            if sig_str.contains('(') && sig_str.contains(')') {
-                let name = self.intern(ne.name);
-                let sig = self.intern(ne.sig);
-                let (args, ret) = parse_sig(ne.sig);
-                let slot = methods.len() as u32;
-                dispatch.insert((name, sig), slot);
-                methods.push(Method {
-                    slot,
-                    class: id,
-                    name,
-                    sig,
-                    ret: self.intern(ret),
-                    args: args.iter().map(|a| self.intern(a)).collect(),
-                    access_flags: class::ACC_PUBLIC | class::ACC_STATIC,
-                    static_method: true,
-                    dex_idx: 0,
-                    native_key: Some((desc_id, name, sig)),
-                    native_decl: false,
-                    code: None,
-                    insns: OnceLock::new(),
-                });
-            }
-            // Static fields are handled separately in def.statics loop below
         }
 
         // static fields
@@ -1204,7 +1099,7 @@ impl Vm {
             args: Vec::new(),
             class_desc: 0,
         };
-        if receiver.is_null_ref() {
+        if receiver.is_null() {
             return Err(JvmError::Fatal("invoke_virtual on null".into()));
         }
         let recv = receiver.as_obj();
@@ -1228,7 +1123,7 @@ impl Vm {
             args: Vec::new(),
             class_desc: 0,
         };
-        if receiver.is_null_ref() {
+        if receiver.is_null() {
             return Err(JvmError::Fatal("invoke_virtual on null".into()));
         }
         let recv = receiver.as_obj();
@@ -1376,7 +1271,7 @@ impl Vm {
 
     /// String payload of a java.lang.String value, if any.
     pub fn str_of_jvalue(&self, v: JValue) -> Option<String> {
-        if v.is_null_ref() {
+        if v.is_null() {
             return None;
         }
         let id = v.as_obj();
@@ -1388,7 +1283,7 @@ impl Vm {
 
     /// Owned payload for a non-null object value.
     pub fn payload_of(&self, v: JValue) -> Option<object::Native> {
-        if v.is_null_ref() {
+        if v.is_null() {
             return None;
         }
         let id = v.as_obj();
@@ -1397,7 +1292,7 @@ impl Vm {
 
     /// Resolved class id for a non-null object value.
     pub fn object_class(&self, v: JValue) -> Option<u32> {
-        if v.is_null_ref() {
+        if v.is_null() {
             return None;
         }
         let id = v.as_obj();
@@ -1424,7 +1319,6 @@ impl Vm {
                     Ok(v) => Ok(v),
                     Err(NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
                     Err(NatErr::Fatal(e)) => Err(e),
-                    Err(NatErr::Suspend(cont_id)) => Err(JvmError::Suspended(cont_id)),
                 }
             }
             Target::Bytecode { class, slot, .. } => {
@@ -2081,72 +1975,6 @@ impl Vm {
     pub fn write_out(&mut self, s: &str) {
         let _ = self.out.write_all(s.as_bytes());
         let _ = self.out.flush();
-    }
-
-    // ---- coroutine suspend/resume ----
-
-    /// Park the current coroutine, saving its frame state.
-    /// Returns a continuation ID that can be used to resume later.
-    pub fn park_continuation(&mut self, _cont_ptr: JValue) -> Result<u64, JvmError> {
-        let cont_id = self.next_cont_id;
-        self.next_cont_id += 1;
-        
-        if let Some(frame) = self.frames.last().cloned() {
-            self.continuations.insert(cont_id, (frame, 0));
-        } else {
-            return Err(JvmError::Fatal("no frame to park".into()));
-        }
-        
-        Ok(cont_id)
-    }
-
-    /// Resume a parked continuation with a result value.
-    pub fn resume_continuation(&mut self, cont_id: u64, value: JValue) -> Result<JValue, JvmError> {
-        // Check if there's an enqueue callback for this continuation
-        let enqueue_callback = self.enqueue_callbacks.remove(&cont_id);
-        
-        if let Some((mut frame, _result_reg)) = self.continuations.remove(&cont_id) {
-            frame.result = value;
-            self.frames.push(frame);
-            let r = self.run_loop();
-            
-            // Pop the frame to access its result
-            let frame = self.frames.pop().expect("frame should exist after run_loop");
-            
-            // If there was an enqueue callback, invoke it on the resumed frame
-            if let Some(callback) = enqueue_callback {
-                // The call object is in register 0 (the receiver)
-                let call_obj = frame.reg(0).unwrap_or(JValue::Null);
-                
-                // Determine if result is an exception (IOException) or Response
-                let is_io_exception = match self.payload_of(frame.result) {
-                    Some(Native::Throwable { .. }) => true,
-                    _ => false,
-                };
-                
-                if is_io_exception {
-                    // Invoke onFailure(call, IOException)
-                    self.invoke_virtual_args(
-                        callback,
-                        "onFailure",
-                        "(Lokhttp3/Call;Ljava/io/IOException;)V",
-                        vec![call_obj, frame.result.clone()],
-                    )?;
-                } else {
-                    // Invoke onResponse
-                    self.invoke_virtual_args(
-                        callback,
-                        "onResponse",
-                        "(Lokhttp3/Call;Lokhttp3/Response;)V",
-                        vec![call_obj, frame.result.clone()],
-                    )?;
-                }
-            }
-            
-            Ok(value)
-        } else {
-            Err(JvmError::Fatal(format!("continuation {} not found", cont_id)))
-        }
     }
 }
 

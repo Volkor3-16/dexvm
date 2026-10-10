@@ -7,8 +7,13 @@ fn mock(_req: &HttpData) -> HttpResp {
     HttpResp {
         code: 200,
         message: "OK".into(),
-        headers: vec![("content-type".into(), "application/json".into())],
-        body: Some(r#"{"mangas":[],"hasNext":false}"#.into()),
+        headers: vec![("content-type".into(), "text/html".into())],
+        body: Some(
+            "<ol class=\"homepage-ranking-list\" data-ranking-period=\"total\"><li>\
+             <a class=\"homepage-ranking-item__link\" href=\"/truyen/a\"><div class=\"homepage-ranking-item__title\">A</div>\
+             <img src=\"/img.png\"/></a></li></ol>"
+                .into(),
+        ),
     }
 }
 
@@ -51,45 +56,11 @@ fn probe_coro_popular() {
     }
     match ext.popular_coro(src, 1) {
         Ok(mp) => eprintln!(
-            "PROBE popular_coro ok: {} mangas has_next={}",
-            mp.mangas.len(),
-            mp.has_next
-        ),
-        Err(e) => eprintln!("PROBE popular_coro err: {}", ext.describe_error(&e)),
-    }
-    match ext.popular(src, 1) {
-        Ok(mp) => eprintln!(
             "PROBE popular ok: {} mangas has_next={}",
             mp.mangas.len(),
             mp.has_next
         ),
         Err(e) => eprintln!("PROBE popular err: {}", ext.describe_error(&e)),
-    }
-    // Test yidan
-    let mut ext2 = Keiyoushi::open("fixtures/keiyoushi_all/tachiyomi-zh.yidan-v1.4.5.apk").expect("open yidan");
-    ext2.set_http_rc(Rc::new(mock));
-    let srcs2 = ext2.sources().expect("sources yidan");
-    let src2 = &srcs2[0];
-    let src_class = {
-        let vm = ext2.ctx().vm();
-        vm.arena.objects.get(src2.inst() as usize).map(|o| vm.str_of(vm.classes[o.class as usize].descriptor).to_string()).unwrap_or("NULL".to_string())
-    };
-    eprintln!("DEBUG yidan source: inst={}, class={}", src2.inst(), src_class);
-    match ext2.popular(src2, 1) {
-        Ok(mp) => eprintln!(
-            "PROBE yidan popular ok: {} mangas has_next={}",
-            mp.mangas.len(),
-            mp.has_next
-        ),
-        Err(e) => eprintln!("PROBE yidan popular err: {}", ext2.describe_error(&e)),
-    }
-    match ext2.popular_coro(src2, 1) {
-        Ok(mp) => eprintln!(
-            "PROBE yidan popular_coro ok: {} mangas has_next={}",
-            mp.mangas.len(),
-            mp.has_next
-        ),
-        Err(e) => eprintln!("PROBE yidan popular_coro err: {}", ext2.describe_error(&e)),
     }
     let _ = RefCell::new(0);
 }

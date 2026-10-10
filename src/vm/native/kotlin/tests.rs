@@ -88,8 +88,12 @@ fn ranges_and_int_iterator_keep_state() {
         assert_eq!(int_of(int_range_get_first(vm, &[range]).unwrap()), 2);
         assert_eq!(int_of(int_range_get_last(vm, &[range]).unwrap()), 4);
 
-        // Get the proper IntIterator from the range's iterator() method
-        let iterator = progression_iterator(vm, &[range]).unwrap();
+        let iterator = alloc(
+            vm,
+            "Lkotlin/collections/IntIterator;",
+            Native::IntRange(2, 4),
+        )
+        .unwrap();
         assert!(bool_of(int_iterator_has_next(vm, &[iterator]).unwrap()));
         assert_eq!(int_of(int_iterator_next_int(vm, &[iterator]).unwrap()), 2);
         assert_eq!(int_of(int_iterator_next_int(vm, &[iterator]).unwrap()), 3);

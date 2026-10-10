@@ -122,52 +122,6 @@ fn rx_materialize(vm: &mut Vm, value: JValue) -> Result<(Vec<JValue>, JValue), N
                     Err(other) => return Err(other),
                 }
             }
-            RxOperator::DoOnError(callback) => {
-                if !error.is_null() {
-                    match inv_virt(vm, callback, "call", "(Ljava/lang/Object;)V", &[error]) {
-                        Ok(_) => error = JValue::Null,
-                        Err(NatErr::Throw(thrown)) => error = JValue::Obj(thrown),
-                        Err(other) => return Err(other),
-                    }
-                }
-            }
-            RxOperator::DoOnSubscribe(callback) => {
-                match inv_virt(vm, callback, "call", "()V", &[]) {
-                    Ok(_) => {}
-                    Err(NatErr::Throw(thrown)) => error = JValue::Obj(thrown),
-                    Err(other) => return Err(other),
-                }
-            }
-            RxOperator::DoOnUnsubscribe(callback) => {
-                match inv_virt(vm, callback, "call", "()V", &[]) {
-                    Ok(_) => {}
-                    Err(NatErr::Throw(thrown)) => error = JValue::Obj(thrown),
-                    Err(other) => return Err(other),
-                }
-            }
-            RxOperator::DoOnEach(callback) => {
-                for value in &values {
-                    match inv_virt(vm, callback, "call", "(Ljava/lang/Object;)V", &[*value]) {
-                        Ok(_) => {}
-                        Err(NatErr::Throw(thrown)) => {
-                            error = JValue::Obj(thrown);
-                            break;
-                        }
-                        Err(other) => return Err(other),
-                    }
-                }
-            }
-            RxOperator::SubscribeOn(_scheduler) => {
-                // For synchronous VM, just execute immediately
-                // In real RxJava this would switch schedulers
-            }
-            RxOperator::ObserveOn(_scheduler) => {
-                // For synchronous VM, just execute immediately
-                // In real RxJava this would switch schedulers
-            }
-            RxOperator::Cache => {
-                // Cache is a no-op in our synchronous implementation
-            }
             _ => {
                 if !error.is_null() {
                     break;
@@ -237,17 +191,7 @@ fn rx_materialize(vm: &mut Vm, value: JValue) -> Result<(Vec<JValue>, JValue), N
                     }
                     RxOperator::OnErrorReturn(_)
                     | RxOperator::OnErrorResumeNext(_)
-                    | RxOperator::DoOnTerminate(_)
-                    | RxOperator::DoOnError(_)
-                    | RxOperator::DoOnSubscribe(_)
-                    | RxOperator::DoOnUnsubscribe(_)
-                    | RxOperator::DoOnEach(_)
-                    | RxOperator::SubscribeOn(_)
-                    | RxOperator::ObserveOn(_)
-                    | RxOperator::Cache
-                    | RxOperator::Single
-                    | RxOperator::ToBlocking
-                    | RxOperator::ToList => unreachable!("handled above"),
+                    | RxOperator::DoOnTerminate(_) => unreachable!("handled above"),
                 }
             }
         }
@@ -317,23 +261,6 @@ fn observable_do_on_next(vm: &mut Vm, args: &[JValue]) -> R {
 
 fn observable_identity(_vm: &mut Vm, args: &[JValue]) -> R {
     Ok(args[0])
-}
-
-fn observable_single(vm: &mut Vm, args: &[JValue]) -> R {
-    // Observable.single() - returns a Single that emits the single item from the Observable
-    let (values, error) = rx_materialize(vm, args[0])?;
-    if let Some(err) = rx_terminal_err(error) {
-        return Err(err);
-    }
-    match values.len() {
-        0 => Err(no_such_elem(vm)),
-        1 => rx_alloc(
-            vm,
-            "Lrx/Single;",
-            (Vec::new(), JValue::Null, values[0], Vec::new()),
-        ),
-        _ => Err(iae(vm, "Observable has multiple elements")),
-    }
 }
 
 fn observable_to_blocking(vm: &mut Vm, args: &[JValue]) -> R {
@@ -639,13 +566,6 @@ pub(crate) const RX_TABLE: &[NativeEntry] = &[
         "()Lrx/observables/BlockingObservable;",
         true,
         observable_to_blocking
-    ),
-    ne!(
-        "Lrx/Observable;",
-        "single",
-        "()Lrx/Single;",
-        true,
-        observable_single
     ),
     ne!(
         "Lrx/Observable;",

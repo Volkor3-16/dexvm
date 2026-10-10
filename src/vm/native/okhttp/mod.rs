@@ -154,7 +154,6 @@ pub(crate) fn request_builder_build(vm: &mut Vm, args: &[JValue]) -> R {
             method,
             headers,
             body,
-            enqueue_callback: None,
         },
     )
 }
@@ -191,14 +190,13 @@ pub(crate) fn request_header(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn request_new_builder(vm: &mut Vm, args: &[JValue]) -> R {
-    let (url, method, headers, body, _enqueue_callback) = match payload(vm, args[0]) {
+    let (url, method, headers, body) = match payload(vm, args[0]) {
         Some(Native::Request {
             url,
             method,
             headers,
             body,
-            enqueue_callback: _,
-        }) => (url.clone(), method.clone(), headers.clone(), *body, Option::<JValue>::None),
+        }) => (url.clone(), method.clone(), headers.clone(), *body),
         _ => return Err(npe(vm)),
     };
     alloc(
@@ -887,26 +885,6 @@ pub(crate) fn okhttp_builder_network_interceptors(vm: &mut Vm, args: &[JValue]) 
 }
 
 pub(crate) fn okhttp_builder_build(vm: &mut Vm, args: &[JValue]) -> R {
-    let (interceptors, network_interceptors) = match payload(vm, args[0]) {
-        Some(Native::OkHttpBuilder {
-            interceptors,
-            network_interceptors,
-        }) => (interceptors.clone(), network_interceptors.clone()),
-        _ => return Err(npe(vm)),
-    };
-    alloc(
-        vm,
-        "Lokhttp3/OkHttpClient;",
-        Native::OkHttpClient {
-            interceptors,
-            network_interceptors,
-        },
-    )
-}
-
-/// `OkHttpClient$Builder.getClient()` — returns a client configured with
-/// the builder's current settings without consuming the builder.
-pub(crate) fn okhttp_builder_get_client(vm: &mut Vm, args: &[JValue]) -> R {
     let (interceptors, network_interceptors) = match payload(vm, args[0]) {
         Some(Native::OkHttpBuilder {
             interceptors,
@@ -2388,146 +2366,8 @@ pub(crate) fn okhttp_client_new_call(vm: &mut Vm, args: &[JValue]) -> R {
             request: args[1],
             client: args[0],
             canceled: false,
-            enqueue_callback: None,
         },
     )
-}
-
-/// `OkHttpClient.GET$default(url, headers, cacheControl, mask, defaultMarker)`
-/// Kotlin synthetic for `OkHttpClient.GET` extension with default params.
-/// mask bits: 0x1 = headers provided, 0x2 = cacheControl provided
-pub(crate) fn okhttp_client_get_default(vm: &mut Vm, args: &[JValue]) -> R {
-    // args[0] = url (String), args[1] = headers (Headers?), args[2] = cacheControl (CacheControl?),
-    // args[3] = mask (Int), args[4] = defaultMarker (Object?)
-    let url = match jstr(vm, args[0]) {
-        Ok(s) => s,
-        Err(_) => return Err(npe(vm)),
-    };
-    let mask = int_of(vm, args[3]);
-    
-    // Create Request$Builder
-    let builder = alloc(
-        vm,
-        "Lokhttp3/Request$Builder;",
-        Native::RequestBuilder {
-            url: url.clone(),
-            method: "GET".to_string(),
-            headers: Vec::new(),
-            body: None,
-        },
-    )?;
-    
-    // Apply headers if provided (mask & 0x1)
-    if (mask & 0x1) != 0 && !args[1].is_null_ref() {
-        // Clone headers first to avoid borrow conflict
-        let hdrs = match payload(vm, args[1]) {
-            Some(Native::Headers(h)) => h.clone(),
-            _ => Vec::new(),
-        };
-        if !hdrs.is_empty() {
-            if let Some(Native::RequestBuilder { headers, .. }) = payload_mut(vm, builder) {
-                headers.extend(hdrs);
-            }
-        }
-    }
-    
-    // Apply cacheControl if provided (mask & 0x2)
-    if (mask & 0x2) != 0 && !args[2].is_null_ref() {
-        let (max_age, no_cache) = match payload(vm, args[2]) {
-            Some(Native::CacheControl { max_age, no_cache, .. }) => (*max_age, *no_cache),
-            _ => (0, false),
-        };
-        let mut hdr = String::new();
-        if no_cache {
-            hdr.push_str("no-cache");
-        }
-        if max_age >= 0 {
-            if !hdr.is_empty() {
-                hdr.push_str(", ");
-            }
-            hdr.push_str(&format!("max-age={}", max_age));
-        }
-        if !hdr.is_empty() {
-            if let Some(Native::RequestBuilder { headers, .. }) = payload_mut(vm, builder) {
-                headers.push(("Cache-Control".to_string(), hdr));
-            }
-        }
-    }
-    
-    // Build the request
-    request_builder_build(vm, &[builder])
-}
-
-/// `OkHttpClient.POST$default(url, headers, body, cacheControl, mask, defaultMarker)`
-/// Kotlin synthetic for `OkHttpClient.POST` extension with default params.
-/// mask bits: 0x1 = headers provided, 0x2 = body provided, 0x4 = cacheControl provided
-pub(crate) fn okhttp_client_post_default(vm: &mut Vm, args: &[JValue]) -> R {
-    // args[0] = url (String), args[1] = headers (Headers?), args[2] = body (RequestBody?),
-    // args[3] = cacheControl (CacheControl?), args[4] = mask (Int), args[5] = defaultMarker (Object?)
-    let url = match jstr(vm, args[0]) {
-        Ok(s) => s,
-        Err(_) => return Err(npe(vm)),
-    };
-    let mask = int_of(vm, args[4]);
-    
-    // Create Request$Builder
-    let builder = alloc(
-        vm,
-        "Lokhttp3/Request$Builder;",
-        Native::RequestBuilder {
-            url: url.clone(),
-            method: "POST".to_string(),
-            headers: Vec::new(),
-            body: None,
-        },
-    )?;
-    
-    // Apply headers if provided (mask & 0x1)
-    if (mask & 0x1) != 0 && !args[1].is_null_ref() {
-        // Clone headers first to avoid borrow conflict
-        let hdrs = match payload(vm, args[1]) {
-            Some(Native::Headers(h)) => h.clone(),
-            _ => Vec::new(),
-        };
-        if !hdrs.is_empty() {
-            if let Some(Native::RequestBuilder { headers, .. }) = payload_mut(vm, builder) {
-                headers.extend(hdrs);
-            }
-        }
-    }
-    
-    // Apply body if provided (mask & 0x2)
-    if (mask & 0x2) != 0 && !args[2].is_null_ref() {
-        if let Some(Native::RequestBuilder { body, .. }) = payload_mut(vm, builder) {
-            *body = Some(args[2]);
-        }
-    }
-    
-    // Apply cacheControl if provided (mask & 0x4)
-    if (mask & 0x4) != 0 && !args[3].is_null_ref() {
-        let (max_age, no_cache) = match payload(vm, args[3]) {
-            Some(Native::CacheControl { max_age, no_cache, .. }) => (*max_age, *no_cache),
-            _ => (0, false),
-        };
-        let mut hdr = String::new();
-        if no_cache {
-            hdr.push_str("no-cache");
-        }
-        if max_age >= 0 {
-            if !hdr.is_empty() {
-                hdr.push_str(", ");
-            }
-            hdr.push_str(&format!("max-age={}", max_age));
-        }
-        if !hdr.is_empty() {
-            if let Some(Native::RequestBuilder { headers, .. }) = payload_mut(vm, builder) {
-                headers.push(("Cache-Control".to_string(), hdr));
-            }
-        }
-    }
-    
-    // Build the request
-    request_builder_build(vm, &[builder])
 }
 
 #[cfg(feature = "tachiyomi")]
@@ -2592,18 +2432,6 @@ pub(crate) fn okhttp_call_execute(vm: &mut Vm, args: &[JValue]) -> R {
 fn okhttp_call_enqueue(vm: &mut Vm, args: &[JValue]) -> R {
     let call = args[0];
     let callback = args[1];
-    
-    // Store callback on the Call object for later invocation on resume
-    if let Some(Native::Call { enqueue_callback, request, .. }) = payload_mut(vm, call) {
-        *enqueue_callback = Some(callback);
-        // Also copy callback to the Request for access during async resume
-        if let JValue::Obj(req_obj) = request {
-            if let Some(Native::Request { enqueue_callback: req_cb, .. }) = payload_mut(vm, JValue::Obj(req_obj)) {
-                *req_cb = Some(callback);
-            }
-        }
-    }
-    
     match okhttp_call_execute(vm, &[call]) {
         Ok(response) => {
             inv_virt(
@@ -2613,7 +2441,6 @@ fn okhttp_call_enqueue(vm: &mut Vm, args: &[JValue]) -> R {
                 "(Lokhttp3/Call;Lokhttp3/Response;)V",
                 &[call, response],
             )?;
-            Ok(JValue::Null)
         }
         Err(NatErr::Throw(error)) => {
             inv_virt(
@@ -2623,14 +2450,10 @@ fn okhttp_call_enqueue(vm: &mut Vm, args: &[JValue]) -> R {
                 "(Lokhttp3/Call;Ljava/io/IOException;)V",
                 &[call, JValue::Obj(error)],
             )?;
-            Ok(JValue::Null)
         }
-        Err(NatErr::Suspend(cont_id)) => {
-            // Async path: callback is stored on Call and Request, will be invoked on resume
-            Err(NatErr::Suspend(cont_id))
-        }
-        Err(error) => Err(error),
+        Err(error) => return Err(error),
     }
+    Ok(JValue::Null)
 }
 
 /// Runs the real host HTTP request for `request` and wraps it as a Response.
@@ -2641,7 +2464,7 @@ fn okhttp_call_enqueue(vm: &mut Vm, args: &[JValue]) -> R {
 fn host_execute(vm: &mut Vm, request: JValue) -> R {
     let (url, method, mut headers, body) = request_parts(vm, request)?;
     let url = okhttp_url_encode(&url);
-    crate::vm::native::http::check_network_url(vm, &url)?;
+    crate::vm::native::keiyoushi::check_network_url(vm, &url)?;
     let host = url_host_and_path(&url).0;
     if let Some(resolve) = &vm.host_headers {
         let (ua, cookie) = resolve(&host);
@@ -2690,10 +2513,10 @@ fn host_execute(vm: &mut Vm, request: JValue) -> R {
             "DEXVM_TRACE host_execute {method} {url}\n  hdrs={headers:?}\n  body={body_str:?}"
         );
     }
-    let Some(http) = vm.http_sync.clone() else {
+    let Some(http) = vm.http.clone() else {
         return Err(uoe(vm, "no HTTP client registered for this SourceEngine"));
     };
-    let resp = http(&crate::vm::native::http::HttpData {
+    let resp = http(&crate::vm::native::keiyoushi::HttpData {
         url,
         method,
         headers,
@@ -2916,10 +2739,6 @@ pub(crate) fn response_builder_build(vm: &mut Vm, args: &[JValue]) -> R {
 pub(crate) const OKHTTP_TABLE: &[NativeEntry] = &[
     #[cfg(feature = "okhttp")]
     ne!("Lokhttp3/OkHttpClient;", "newCall", "(Lokhttp3/Request;)Lokhttp3/Call;", true, okhttp_client_new_call),
-    #[cfg(feature = "okhttp")]
-    ne!("Lokhttp3/OkHttpClient;", "GET$default", "(Ljava/lang/String;Lokhttp3/Headers;Lokhttp3/CacheControl;ILjava/lang/Object;)Lokhttp3/Request;", false, okhttp_client_get_default),
-    #[cfg(feature = "okhttp")]
-    ne!("Lokhttp3/OkHttpClient;", "POST$default", "(Ljava/lang/String;Lokhttp3/Headers;Lokhttp3/RequestBody;Lokhttp3/CacheControl;ILjava/lang/Object;)Lokhttp3/Request;", false, okhttp_client_post_default),
     #[cfg(feature = "tachiyomi")]
     ne!("Lokhttp3/Call;", "execute", "()Lokhttp3/Response;", true, okhttp_call_execute),
     #[cfg(feature = "tachiyomi")]
@@ -2980,8 +2799,6 @@ pub(crate) const OKHTTP_TABLE: &[NativeEntry] = &[
     ne!("Lokhttp3/Timeout;", "timeoutMillis", "()J", true, timeout_timeout_millis),
     ne!("Lokhttp3/Response;", "priorResponse", "()Lokhttp3/Response;", true, response_prior_response),
     ne!("Lokhttp3/Interceptor$Chain;", "connection", "()Lokhttp3/Connection;", true, chain_connection),
-    // Interceptor interface method
-    ne!("Lokhttp3/Interceptor;", "intercept", INTERCEPT_SIG, true, interceptor_pass_through),
     ne!("Lokhttp3/Response;", "newBuilder", "()Lokhttp3/Response$Builder;", true, response_new_builder),
     ne!("Lokhttp3/Response$Builder;", "body", "(Lokhttp3/ResponseBody;)Lokhttp3/Response$Builder;", true, response_builder_body),
     ne!("Lokhttp3/Response$Builder;", "header", "(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/Response$Builder;", true, response_builder_header),
@@ -3009,7 +2826,6 @@ pub(crate) const OKHTTP_TABLE: &[NativeEntry] = &[
     ne!("Lokhttp3/OkHttpClient$Builder;", "interceptors", "()Ljava/util/List;", true, okhttp_builder_interceptors),
     ne!("Lokhttp3/OkHttpClient$Builder;", "networkInterceptors", "()Ljava/util/List;", true, okhttp_builder_network_interceptors),
     ne!("Lokhttp3/OkHttpClient$Builder;", "build", "()Lokhttp3/OkHttpClient;", true, okhttp_builder_build),
-    ne!("Lokhttp3/OkHttpClient$Builder;", "getClient", "()Lokhttp3/OkHttpClient;", true, okhttp_builder_get_client),
     ne!("Lokhttp3/FormBody$Builder;", "<init>", "(Ljava/nio/charset/Charset;ILkotlin/jvm/internal/DefaultConstructorMarker;)V", true, okhttp_form_builder_init),
     ne!("Lokhttp3/FormBody$Builder;", "add", "(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/FormBody$Builder;", true, okhttp_form_builder_add),
     ne!("Lokhttp3/FormBody$Builder;", "build", "()Lokhttp3/FormBody;", true, okhttp_form_builder_build),

@@ -7,6 +7,11 @@
 //!   cargo run --features keiyoushi --bin exttest -- --json report.json
 //!   cargo run --features keiyoushi --bin exttest -- --apk fixtures/tachiyomi-all.akuma-v1.4.10.apk
 
+#![allow(dead_code)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::if_same_then_else)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;

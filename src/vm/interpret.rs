@@ -23,7 +23,7 @@ pub struct Frame {
     regs: Vec<JValue>,
     pc: usize,
     err_pc: usize,
-    pub(crate) result: JValue,
+    result: JValue,
     pending_exc: Option<JValue>,
 }
 
@@ -42,11 +42,6 @@ enum StepOutcome {
 }
 
 impl Frame {
-    /// Get a register value by index.
-    pub(crate) fn reg(&self, index: usize) -> Option<JValue> {
-        self.regs.get(index).cloned()
-    }
-    
     /// Dalvik lays out the incoming arguments as the *last* `ins_size`
     /// registers of the frame (vN-ins+1 .. vN), not the first.
     fn make_regs(args: &[JValue], ins_size: u16, registers: u16) -> Vec<JValue> {
@@ -112,7 +107,6 @@ pub fn run(vm: &mut Vm, class: u32, slot: u32, args: Vec<JValue>) -> Result<JVal
             Ok(v) => Ok(v),
             Err(NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
             Err(NatErr::Fatal(e)) => Err(e),
-            Err(NatErr::Suspend(cont_id)) => Err(JvmError::Suspended(cont_id)),
         };
     }
     let saved = std::mem::take(&mut vm.frames);
@@ -271,34 +265,10 @@ impl Vm {
                         None => return Ok(v),
                     },
                     Flow::Call(kind, mref, target, args, ret_pc) => {
-                        let method_name = self.str_of(mref.name);
                         let receiver = if kind == InvokeKind::Static {
                             None
                         } else {
-                            let recv = f.regs[args.reg_at(0) as usize];
-                            // For Direct (invokespecial) calls, the receiver might be null
-                            // due to coroutine state machine not preserving `this` across
-                            // suspension points. Try to recover from frame locals.
-                            let recv = if recv.is_null_ref() && kind == InvokeKind::Direct {
-                                eprintln!("DEBUG Direct null recv: method={}, kind={:?}, reg_idx={}, recv={:?}, local0={:?}, f.class={}, f.pc={}", method_name, kind, args.reg_at(0), recv, f.regs.get(0), self.class_desc_str(f.class), f.pc);
-                                // In instance methods, local 0 is typically `this`
-                                if let Some(this_local) = f.regs.get(0) {
-                                    if !this_local.is_null_ref() {
-                                        eprintln!(
-                                            "DEBUG: Direct call null receiver recovered from local[0]={:?}",
-                                            this_local
-                                        );
-                                        *this_local
-                                    } else {
-                                        recv
-                                    }
-                                } else {
-                                    recv
-                                }
-                            } else {
-                                recv
-                            };
-                            Some(recv)
+                            Some(f.regs[args.reg_at(0) as usize])
                         };
                         if std::env::var("DEXVM_TRACE").is_ok() {
                             let recv = receiver
@@ -452,10 +422,6 @@ impl Vm {
                                         }
                                     }
                                     Err(NatErr::Fatal(e)) => return Err(e),
-                                    Err(NatErr::Suspend(cont_id)) => {
-                                        self.frames.push(f);
-                                        return Err(JvmError::Suspended(cont_id));
-                                    }
                                 }
                             }
                             Target::Bytecode {
@@ -1284,23 +1250,7 @@ impl Vm {
                         }
                         return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
                     }
-                    // Handle invalid object references (e.g., Int(n) where n != 0)
-                    let receiver_obj = match r {
-                        JValue::Obj(o) => o,
-                        _ => {
-                            if std::env::var("DEXVM_TRACE").is_ok() {
-                                eprintln!(
-                                    "DEXVM_TRACE invalid-recv {}.{} on {} reg0={:?}",
-                                    self.class_desc_str(f.class),
-                                    self.str_of(mref.name),
-                                    self.class_desc_str(f.class),
-                                    r
-                                );
-                            }
-                            return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
-                        }
-                    };
-                    Some(receiver_obj)
+                    Some(r.as_obj())
                 };
                 let target = self.resolve_target(*kind, &mref, receiver, f.class)?;
                 let tcls = match &target {

@@ -22,9 +22,6 @@ pub enum JvmError {
     Exit(i32),
     /// Everything else.
     Fatal(String),
-    /// Coroutine suspended waiting for async host callback.
-    /// Contains the continuation ID to resume later.
-    Suspended(u64),
 }
 
 impl fmt::Display for JvmError {
@@ -37,7 +34,6 @@ impl fmt::Display for JvmError {
             JvmError::StackOverflow => write!(f, "stack overflow"),
             JvmError::Exit(c) => write!(f, "System.exit({c})"),
             JvmError::Fatal(m) => write!(f, "fatal: {m}"),
-            JvmError::Suspended(id) => write!(f, "coroutine suspended (cont_id={id})"),
         }
     }
 }
@@ -55,7 +51,6 @@ impl From<crate::vm::NatErr> for JvmError {
         match e {
             crate::vm::NatErr::Throw(t) => JvmError::Uncaught(t),
             crate::vm::NatErr::Fatal(j) => j,
-            crate::vm::NatErr::Suspend(id) => JvmError::Suspended(id),
         }
     }
 }

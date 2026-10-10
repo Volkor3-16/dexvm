@@ -50,27 +50,6 @@ fn builder_to_formatter(vm: &mut Vm, args: &[JValue]) -> R {
     )
 }
 
-/// `parseCaseInsensitive` - enables case-insensitive parsing.
-/// This is a no-op for our simplified formatter but returns `this` for chaining.
-fn builder_parse_case_insensitive(_vm: &mut Vm, args: &[JValue]) -> R {
-    Ok(args[0])
-}
-
-/// `appendFraction` - appends a fractional second field. No-op for chaining.
-fn builder_append_fraction(_vm: &mut Vm, args: &[JValue]) -> R {
-    Ok(args[0])
-}
-
-/// `appendValue` - appends a field value. No-op for chaining.
-fn builder_append_value(_vm: &mut Vm, args: &[JValue]) -> R {
-    Ok(args[0])
-}
-
-/// `toFormatter` no-arg version.
-fn builder_to_formatter_no_args(vm: &mut Vm, args: &[JValue]) -> R {
-    builder_to_formatter(vm, args)
-}
-
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Ljava/time/format/DateTimeFormatterBuilder;",
@@ -88,20 +67,6 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ),
     ne!(
         "Ljava/time/format/DateTimeFormatterBuilder;",
-        "appendFraction",
-        "(Ljava/time/temporal/TemporalField;IIZ)Ljava/time/format/DateTimeFormatterBuilder;",
-        true,
-        builder_append_fraction
-    ),
-    ne!(
-        "Ljava/time/format/DateTimeFormatterBuilder;",
-        "appendValue",
-        "(Ljava/time/temporal/TemporalField;)Ljava/time/format/DateTimeFormatterBuilder;",
-        true,
-        builder_append_value
-    ),
-    ne!(
-        "Ljava/time/format/DateTimeFormatterBuilder;",
         "parseDefaulting",
         "(Ljava/time/temporal/TemporalField;J)Ljava/time/format/DateTimeFormatterBuilder;",
         true,
@@ -109,30 +74,9 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ),
     ne!(
         "Ljava/time/format/DateTimeFormatterBuilder;",
-        "parseDefaulting",
-        "(Ljava/time/temporal/TemporalField;I)Ljava/time/format/DateTimeFormatterBuilder;",
-        true,
-        builder_parse_defaulting
-    ),
-    ne!(
-        "Ljava/time/format/DateTimeFormatterBuilder;",
-        "toFormatter",
-        "()Ljava/time/format/DateTimeFormatter;",
-        true,
-        builder_to_formatter_no_args
-    ),
-    ne!(
-        "Ljava/time/format/DateTimeFormatterBuilder;",
         "toFormatter",
         "(Ljava/util/Locale;)Ljava/time/format/DateTimeFormatter;",
         true,
         builder_to_formatter
-    ),
-    ne!(
-        "Ljava/time/format/DateTimeFormatterBuilder;",
-        "parseCaseInsensitive",
-        "()Ljava/time/format/DateTimeFormatterBuilder;",
-        true,
-        builder_parse_defaulting
     ),
 ];

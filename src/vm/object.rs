@@ -16,15 +16,6 @@ pub enum RxOperator {
     OnErrorReturn(JValue),
     OnErrorResumeNext(JValue),
     DoOnTerminate(JValue),
-    DoOnError(JValue),
-    DoOnSubscribe(JValue),
-    DoOnUnsubscribe(JValue),
-    DoOnEach(JValue),
-    SubscribeOn(JValue),
-    ObserveOn(JValue),
-    Cache,
-    Single,
-    ToBlocking,
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +126,7 @@ impl ArrayData {
 #[cfg(feature = "jsoup")]
 #[derive(Clone)]
 pub struct JsoupDocRef {
-    pub doc: std::sync::Arc<dom_query::Document>,
+    pub doc: std::rc::Rc<dom_query::Document>,
     /// Base URI (the response URL) used to resolve `abs:` attributes.
     pub base: Option<String>,
 }
@@ -251,13 +242,6 @@ pub enum Native {
     Mutex {
         locked: bool,
     },
-    /// kotlin.ranges.IntIterator for IntProgression.iterator()
-    IntIterator {
-        first: i32,
-        last: i32,
-        step: i32,
-        next: i32,
-    },
     /// java.time.LocalDate (days since epoch).
     LocalDay(u32),
     /// java.time.Instant / ZonedDateTime (epoch millis).
@@ -324,8 +308,6 @@ pub enum Native {
         request: JValue,
         client: JValue,
         canceled: bool,
-        /// Callback stored for async enqueue, invoked on resume.
-        enqueue_callback: Option<JValue>,
     },
     /// okhttp3.Interceptor$Chain under execution.
     Chain {
@@ -510,7 +492,7 @@ pub enum Native {
     JsonArr(Vec<JValue>),
     /// app.cash.quickjs.QuickJs host engine (real QuickJS via rquickjs).
     #[cfg(feature = "quickjs")]
-    QuickJs(std::sync::Arc<QuickJsHost>),
+    QuickJs(std::rc::Rc<QuickJsHost>),
     /// java.io.File: real host path. Every `File` method operates on the
     /// actual filesystem (mkdirs/exists/lastModified/resolve/...).
     File {
@@ -520,8 +502,6 @@ pub enum Native {
     /// carries the concrete descriptor from the receiver's generic signature.
     Type {
         desc: String,
-        /// The FullTypeReference subclass that produced this Type (for debugging/workarounds).
-        source_class: String,
     },
     /// java.util.TimeZone (zone id string, e.g. "UTC", "GMT+07:00").
     TimeZone(String),
@@ -553,8 +533,6 @@ pub enum Native {
         method: String,
         headers: Vec<(String, String)>,
         body: Option<JValue>,
-        /// Callback for async enqueue, set by Call.enqueue() and used on resume.
-        enqueue_callback: Option<JValue>,
     },
     /// okhttp3.Request$Builder under construction.
     RequestBuilder {
@@ -787,14 +765,6 @@ pub enum Native {
     },
     /// kotlinx.serialization JsonElement serializer marker.
     JsonElementSerializer,
-    /// kotlinx.serialization JsonArray serializer marker.
-    JsonArraySerializer,
-    /// kotlinx.serialization JsonPrimitive serializer marker.
-    JsonPrimitiveSerializer,
-    /// kotlinx.serialization JsonObject serializer marker.
-    JsonObjectSerializer,
-    /// kotlinx.serialization JsonNull serializer marker.
-    JsonNullSerializer,
     /// kotlinx.serialization EnumSerializer (constants in order + serial
     /// names).
     EnumSerializer {
@@ -953,30 +923,14 @@ impl Native {
                 push(Some(error), out);
                 push(Some(callable), out);
                 for operator in operators {
-                    if let Some(callback) = match &operator {
-                        RxOperator::Map(c) => Some(c),
-                        RxOperator::FlatMap(c) => Some(c),
-                        RxOperator::DoOnNext(c) => Some(c),
-                        RxOperator::OnErrorReturn(c) => Some(c),
-                        RxOperator::OnErrorResumeNext(c) => Some(c),
-                        RxOperator::DoOnTerminate(c) => Some(c),
-                        RxOperator::DoOnError(c) => Some(c),
-                        RxOperator::DoOnSubscribe(c) => Some(c),
-                        RxOperator::DoOnUnsubscribe(c) => Some(c),
-                        RxOperator::DoOnEach(c) => Some(c),
-                        RxOperator::SubscribeOn(c) => Some(c),
-                        RxOperator::ObserveOn(c) => Some(c),
-                        _ => None,
-                    } {
-                        push(Some(callback), out);
-                    } else if matches!(
-                        &operator,
-                        RxOperator::Cache
-                            | RxOperator::Single
-                            | RxOperator::ToBlocking
-                            | RxOperator::ToList
-                    ) {
-                        // These variants don't have callbacks, just skip
+                    match operator {
+                        RxOperator::Map(callback)
+                        | RxOperator::FlatMap(callback)
+                        | RxOperator::DoOnNext(callback)
+                        | RxOperator::OnErrorReturn(callback)
+                        | RxOperator::OnErrorResumeNext(callback)
+                        | RxOperator::DoOnTerminate(callback) => push(Some(callback), out),
+                        RxOperator::ToList => {}
                     }
                 }
             }
@@ -1085,10 +1039,6 @@ impl Native {
             | Native::JsonEncoder { .. }
             | Native::SerialDescriptor { .. }
             | Native::JsonElementSerializer
-            | Native::JsonArraySerializer
-            | Native::JsonPrimitiveSerializer
-            | Native::JsonObjectSerializer
-            | Native::JsonNullSerializer
             | Native::PrimitiveSerializer(_) => {}
             Native::JsonDecoder {
                 element, members, ..
@@ -1207,7 +1157,6 @@ impl Native {
             | Native::Duration(_)
             | Native::IntRange(..)
             | Native::IntProgression(..)
-            | Native::IntIterator { .. }
             | Native::CharRange(..)
             | Native::LongRange(..)
             | Native::ArrayDesc(_)

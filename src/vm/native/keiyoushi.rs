@@ -17,6 +17,51 @@ pub(crate) const FILTER: &str = "Leu/kanade/tachiyomi/source/model/Filter;";
 pub(crate) const RESPONSE: &str = "Lokhttp3/Response;";
 pub(crate) const REQUEST: &str = "Lokhttp3/Request;";
 
+/// A request built by the extension, handed to the host HTTP callback.
+#[derive(Debug, Clone)]
+pub struct HttpData {
+    pub url: String,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
+}
+
+/// The host HTTP callback output; becomes an `okhttp3.Response` object.
+#[derive(Debug, Clone)]
+pub struct HttpResp {
+    pub code: i32,
+    pub message: String,
+    pub headers: Vec<(String, String)>,
+    /// Raw response payload; text bodies arrive as UTF-8 bytes.
+    pub body: Option<Vec<u8>>,
+}
+
+impl HttpResp {
+    pub fn ok(body: impl Into<String>) -> Self {
+        HttpResp {
+            code: 200,
+            message: "OK".into(),
+            headers: Vec::new(),
+            body: Some(body.into().into_bytes()),
+        }
+    }
+    pub fn ok_bytes(bytes: Vec<u8>) -> Self {
+        HttpResp {
+            code: 200,
+            message: "OK".into(),
+            headers: Vec::new(),
+            body: Some(bytes),
+        }
+    }
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .rev()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // lazies for shim class statics
 // ---------------------------------------------------------------------------
@@ -46,62 +91,49 @@ pub(crate) fn lazy_update_strategy_once(vm: &mut Vm) -> JValue {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn keiyoushi_execute(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where extension passes Response instead of Request
-    let request_obj = match payload(vm, args[0]) {
-        Some(Native::Response { request, .. }) => *request,
-        _ => args[0],
-    };
-    let (url, method, headers, body) = request_parts(vm, request_obj)?;
-    crate::vm::native::http::check_network_url(vm, &url)?;
+    let (url, method, headers, body) = request_parts(vm, args[0])?;
+    check_network_url(vm, &url)?;
     if std::env::var("DEXVM_TRACE").is_ok() {
         eprintln!("DEXVM_TRACE http-req {method} {url}");
     }
     let body_str = form_body_to_string(vm, &body);
-    let Some(http) = vm.http_async.clone() else {
+    let Some(http) = vm.http.clone() else {
         return Err(uoe(vm, "no HTTP client registered for this SourceEngine"));
     };
-    
-    // Park the continuation and call async HTTP callback
-    let cont_id = match vm.park_continuation(args[0]) {
-        Ok(id) => id,
-        Err(e) => return Err(nat_fatal(e)),
-    };
-    
-    // Get the callback from the Request and store it for later invocation on resume
-    if let Some(Native::Request { enqueue_callback: Some(callback), .. }) = payload(vm, args[0]) {
-        vm.enqueue_callbacks.insert(cont_id, callback.clone());
-    }
-    
-    let http_data = crate::vm::native::http::HttpData {
+    let resp = http(&HttpData {
         url,
         method,
         headers,
         body: body_str,
-    };
-    
-    // Call the async HTTP callback with a response handler that resumes the continuation
-    http(http_data, Box::new(move |resp: crate::vm::native::http::HttpResp| {
-        // Resume the parked continuation with the response
-        let response_obj = alloc(
-            vm,
-            RESPONSE,
-            Native::Response {
-                code: resp.code,
-                message: resp.message,
-                headers: resp.headers,
-                body: resp.body,
-                request: request_obj,
-                prior: JValue::Null,
-            }
-        ).expect("alloc response");
-        
-        if let Err(e) = vm.resume_continuation(cont_id, response_obj) {
-            eprintln!("DEXVM_TRACE failed to resume continuation: {e}");
-        }
-    }));
-    
-    // Return suspend marker to yield the coroutine
-    Err(NatErr::Suspend(cont_id))
+    });
+    if std::env::var("DEXVM_TRACE").is_ok() {
+        let preview: String = resp
+            .body
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .take(60)
+            .map(|b| char::from(*b))
+            .collect();
+        eprintln!(
+            "DEXVM_TRACE http {} code={} body={}",
+            resp.code,
+            resp.message,
+            preview.escape_default().take(120).collect::<String>()
+        );
+    }
+    alloc(
+        vm,
+        RESPONSE,
+        Native::Response {
+            code: resp.code,
+            message: resp.message,
+            headers: resp.headers,
+            body: resp.body,
+            request: args[0],
+            prior: JValue::Null,
+        },
+    )
 }
 
 pub(crate) fn check_network_url(vm: &mut Vm, url: &str) -> Result<(), NatErr> {
@@ -143,8 +175,16 @@ pub(crate) fn check_network_url(vm: &mut Vm, url: &str) -> Result<(), NatErr> {
 
 /// Host callback that returns the stored `lazy_http`? (unused, kept for docs)
 #[allow(dead_code)]
-/// Async HTTP callback: takes request data and a response handler.
-/// The response handler must be called exactly once with the HttpResp.
+pub(crate) type HttpCall = Rc<dyn Fn(&HttpData) -> HttpResp>;
+
+/// Per-host header resolver: given the lowercase request host, returns an
+/// optional User-Agent and Cookie header value (see
+/// [`Context::set_host_headers`](crate::Context::set_host_headers)).
+pub(crate) type HostHeaderFn = Rc<dyn Fn(&str) -> (Option<String>, Option<String>)>;
+
+pub(crate) fn _http_client(vm: &mut Vm) -> Option<HttpCall> {
+    vm.http.clone()
+}
 
 /// `OkHttpExtensionsKt.awaitSuccess(Call, Continuation)` — the suspend
 /// bridge used by every keiyoushi coroutine source. The VM is fully
@@ -242,95 +282,33 @@ fn http_source_fetch(
     parse_name: &str,
     parse_sig: &str,
 ) -> R {
-    // If receiver is null, we can't call virtual methods on it.
-    // This happens when native is called via invokespecial from extension bytecode.
-    // Fall back to default implementations that don't require a receiver.
-    if receiver.is_null_ref() {
-        let result = (|| {
-            // Build request using default implementation (no receiver needed)
-            let request = match request_name {
-                "mangaDetailsRequest" => http_source_manga_details_request(vm, &[request_args[0]])?,
-                "chapterListRequest" => http_source_chapter_list_request(vm, &[request_args[0]])?,
-                "pageListRequest" => http_source_page_list_request(vm, &[request_args[0]])?,
-                "popularMangaRequest" => http_source_popular_manga_request(
-                    vm,
-                    &request_args[..1.min(request_args.len())],
-                )?,
-                "searchMangaRequest" => http_source_search_manga_request(
-                    vm,
-                    &request_args[..3.min(request_args.len())],
-                )?,
-                "latestUpdatesRequest" => http_source_latest_updates_request(
-                    vm,
-                    &request_args[..1.min(request_args.len())],
-                )?,
-                _ => {
-                    return Err(nat_fatal(JvmError::Resolution(format!(
-                        "unknown request: {}",
-                        request_name
-                    ))))
-                }
-            };
-            let response = keiyoushi_execute(vm, &[request])?;
-            // Parse response using default implementation (no receiver needed)
-            let result = match parse_name {
-                "mangaDetailsParse" => http_source_manga_details_parse(vm, &[response])?,
-                "chapterListParse" => http_source_chapter_list_parse(vm, &[response])?,
-                "pageListParse" => http_source_page_list_parse(vm, &[JValue::Null, response])?,
-                "popularMangaParse" => http_source_popular_manga_parse(vm, &[response])?,
-                "searchMangaParse" => http_source_search_manga_parse(vm, &[response])?,
-                "latestUpdatesParse" => http_source_latest_updates_parse(vm, &[response])?,
-                _ => {
-                    return Err(nat_fatal(JvmError::Resolution(format!(
-                        "unknown parse: {}",
-                        parse_name
-                    ))))
-                }
-            };
-            Ok(result)
-        })();
-        rx::rx_from_result(vm, result)
-    } else {
-        let result = (|| {
-            let request = inv_virt(vm, receiver, request_name, request_sig, request_args)?;
-            let response = keiyoushi_execute(vm, &[request])?;
-            inv_virt(vm, receiver, parse_name, parse_sig, &[response])
-        })();
-        rx::rx_from_result(vm, result)
-    }
+    let result = (|| {
+        let request = inv_virt(vm, receiver, request_name, request_sig, request_args)?;
+        let response = keiyoushi_execute(vm, &[request])?;
+        inv_virt(vm, receiver, parse_name, parse_sig, &[response])
+    })();
+    rx::rx_from_result(vm, result)
 }
 
 fn http_source_fetch_search(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 {
-        args[0]
-    } else {
-        JValue::Null
-    };
     http_source_fetch(
         vm,
-        receiver,
+        args[0],
         "searchMangaRequest",
         "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;)Lokhttp3/Request;",
-        &args[1..4.min(args.len())],
+        &args[1..4],
         "searchMangaParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
     )
 }
 
 fn http_source_fetch_popular(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 {
-        args[0]
-    } else {
-        JValue::Null
-    };
     http_source_fetch(
         vm,
-        receiver,
+        args[0],
         "popularMangaRequest",
         "(I)Lokhttp3/Request;",
-        &args[1..2.min(args.len())],
+        &args[1..2],
         "popularMangaParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
     )
@@ -371,217 +349,72 @@ fn http_source_get_suspend(
 }
 
 fn http_source_get_popular(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 {
-        args[0]
-    } else {
-        JValue::Null
-    };
     http_source_get_suspend(
         vm,
-        &[receiver],
+        args,
         "popularMangaRequest",
         "(I)Lokhttp3/Request;",
-        &args[1..2.min(args.len())],
+        &args[1..2],
         "popularMangaParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
     )
 }
 
-/// Host default for `searchMangaRequest`: builds GET request with query and filters.
-pub(crate) fn http_source_search_manga_request(vm: &mut Vm, args: &[JValue]) -> R {
-    let src = args[0];
-    let page = match args[1] {
-        JValue::Int(i) => i,
-        _ => return Err(npe(vm)),
-    };
-    let query = match jstr(vm, args[2]) {
-        Ok(s) => s,
-        Err(_) => String::new(),
-    };
-    let base_url = match source_base_url(vm, src) {
-        Ok(u) => u,
-        Err(_) => return Err(npe(vm)),
-    };
-    let url = format!(
-        "{}/search?q={}&page={}",
-        base_url.trim_end_matches('/'),
-        urlencoding::encode(&query),
-        page
-    );
-    let request = alloc(
-        vm,
-        REQUEST,
-        Native::Request {
-            url,
-            method: "GET".into(),
-            headers: Vec::new(),
-            body: None,
-            enqueue_callback: None,
-        },
-    )?;
-    keiyoushi_execute(vm, &[request])
-}
-
-/// Host default for `popularMangaRequest`: builds GET request for popular manga.
-pub(crate) fn http_source_popular_manga_request(vm: &mut Vm, args: &[JValue]) -> R {
-    let src = args[0];
-    let page = match args[1] {
-        JValue::Int(i) => i,
-        _ => return Err(npe(vm)),
-    };
-    let base_url = match source_base_url(vm, src) {
-        Ok(u) => u,
-        Err(_) => return Err(npe(vm)),
-    };
-    let url = format!("{}/popular?page={}", base_url.trim_end_matches('/'), page);
-    let request = alloc(
-        vm,
-        REQUEST,
-        Native::Request {
-            url,
-            method: "GET".into(),
-            headers: Vec::new(),
-            body: None,
-            enqueue_callback: None,
-        },
-    )?;
-    keiyoushi_execute(vm, &[request])
-}
-
-/// Host default for `latestUpdatesRequest`: builds GET request for latest updates.
-pub(crate) fn http_source_latest_updates_request(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let (receiver, page) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "latestUpdatesRequest requires page argument".into(),
-        )));
-    };
-    let src = receiver;
-    let page = match page {
-        JValue::Int(i) => i,
-        _ => return Err(npe(vm)),
-    };
-    let base_url = match source_base_url(vm, src) {
-        Ok(u) => u,
-        Err(_) => return Err(npe(vm)),
-    };
-    let url = format!("{}/latest?page={}", base_url.trim_end_matches('/'), page);
-    let request = alloc(
-        vm,
-        REQUEST,
-        Native::Request {
-            url,
-            method: "GET".into(),
-            headers: Vec::new(),
-            body: None,
-            enqueue_callback: None,
-        },
-    )?;
-    keiyoushi_execute(vm, &[request])
-}
-
 fn http_source_get_search(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 {
-        args[0]
-    } else {
-        JValue::Null
-    };
     http_source_get_suspend(
         vm,
-        &[receiver],
+        args,
         "searchMangaRequest",
         "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;)Lokhttp3/Request;",
-        &args[1..4.min(args.len())],
+        &args[1..4],
         "searchMangaParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
     )
 }
 
 fn http_source_get_latest(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let receiver = if args.len() >= 1 {
-        args[0]
-    } else {
-        JValue::Null
-    };
     http_source_get_suspend(
         vm,
-        &[receiver],
+        args,
         "latestUpdatesRequest",
         "(I)Lokhttp3/Request;",
-        &args[1..2.min(args.len())],
+        &args[1..2],
         "latestUpdatesParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;",
     )
 }
 
 fn http_source_get_details(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let (receiver, manga) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "getMangaDetails requires manga argument".into(),
-        )));
-    };
     http_source_get_suspend(
         vm,
-        &[receiver, manga],
+        args,
         "mangaDetailsRequest",
         "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;",
-        &[manga],
+        &args[1..2],
         "mangaDetailsParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/SManga;",
     )
 }
 
 fn http_source_get_chapters(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let (receiver, manga) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "getChapterList requires manga argument".into(),
-        )));
-    };
     http_source_get_suspend(
         vm,
-        &[receiver, manga],
+        args,
         "chapterListRequest",
         "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;",
-        &[manga],
+        &args[1..2],
         "chapterListParse",
         "(Lokhttp3/Response;)Ljava/util/List;",
     )
 }
 
 fn http_source_get_pages(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let (receiver, chapter) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "getPageList requires chapter argument".into(),
-        )));
-    };
     http_source_get_suspend(
         vm,
-        &[receiver, chapter],
+        args,
         "pageListRequest",
         "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;",
-        &[chapter],
+        &args[1..2],
         "pageListParse",
         "(Lokhttp3/Response;)Ljava/util/List;",
     )
@@ -592,68 +425,36 @@ fn http_source_prepare_new_chapter(_vm: &mut Vm, _args: &[JValue]) -> R {
 }
 
 fn http_source_fetch_details(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing (args.len() == 1)
-    // This can happen when called via invokespecial from extension bytecode
-    let (receiver, manga) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        // Receiver missing, use the first arg as manga
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "fetchMangaDetails requires manga argument".into(),
-        )));
-    };
     http_source_fetch(
         vm,
-        receiver,
+        args[0],
         "mangaDetailsRequest",
         "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;",
-        &[manga],
+        &args[1..2],
         "mangaDetailsParse",
         "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/SManga;",
     )
 }
 
 fn http_source_fetch_chapters(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing (args.len() == 1)
-    let (receiver, manga) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "fetchChapterList requires manga argument".into(),
-        )));
-    };
     http_source_fetch(
         vm,
-        receiver,
+        args[0],
         "chapterListRequest",
         "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;",
-        &[manga],
+        &args[1..2],
         "chapterListParse",
         "(Lokhttp3/Response;)Ljava/util/List;",
     )
 }
 
 fn http_source_fetch_pages(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing (args.len() == 1)
-    let (receiver, chapter) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "fetchPageList requires chapter argument".into(),
-        )));
-    };
     http_source_fetch(
         vm,
-        receiver,
+        args[0],
         "pageListRequest",
         "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;",
-        &[chapter],
+        &args[1..2],
         "pageListParse",
         "(Lokhttp3/Response;)Ljava/util/List;",
     )
@@ -772,673 +573,15 @@ pub(crate) fn http_source_get_chapter_url(vm: &mut Vm, args: &[JValue]) -> R {
 /// Host default for `mangaDetailsRequest` when the extension does not
 /// override it: `GET baseUrl + manga.url`.
 pub(crate) fn http_source_manga_details_request(vm: &mut Vm, args: &[JValue]) -> R {
-    // Handle case where receiver is missing
-    let (receiver, manga) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "mangaDetailsRequest requires manga argument".into(),
-        )));
-    };
-    http_source_get_request(vm, receiver, manga)
+    http_source_get_request(vm, args[0], args[1])
 }
 
 pub(crate) fn http_source_chapter_list_request(vm: &mut Vm, args: &[JValue]) -> R {
-    let (receiver, manga) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "chapterListRequest requires manga argument".into(),
-        )));
-    };
-    http_source_get_request(vm, receiver, manga)
+    http_source_get_request(vm, args[0], args[1])
 }
 
 pub(crate) fn http_source_page_list_request(vm: &mut Vm, args: &[JValue]) -> R {
-    let (receiver, chapter) = if args.len() >= 2 {
-        (args[0], args[1])
-    } else if args.len() == 1 {
-        (JValue::Null, args[0])
-    } else {
-        return Err(nat_fatal(JvmError::Resolution(
-            "pageListRequest requires chapter argument".into(),
-        )));
-    };
-    http_source_get_request(vm, receiver, chapter)
-}
-
-/// Parse response body into SMangasPage for popular/search results.
-pub(crate) fn http_source_popular_manga_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    // args[0] = receiver (HttpSource), args[1] = Response
-    parse_mangas_page_response(vm, args[1])
-}
-
-/// Parse response body into SMangasPage for search results.
-pub(crate) fn http_source_search_manga_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    parse_mangas_page_response(vm, args[1])
-}
-
-/// Parse response body into SMangasPage for latest updates results.
-pub(crate) fn http_source_latest_updates_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    parse_mangas_page_response(vm, args[1])
-}
-
-/// Common parser for MangasPage responses (popular, search, latest).
-fn parse_mangas_page_response(vm: &mut Vm, response: JValue) -> R {
-    // Extract body from Response object
-    let body_bytes = match payload(vm, response) {
-        Some(Native::Response { body, .. }) => body.clone().unwrap_or_default(),
-        _ => return Err(npe(vm)),
-    };
-
-    // Parse JSON body
-    let body_str = String::from_utf8_lossy(&body_bytes);
-    let mangas_page = match parse_mangas_page_json(&body_str) {
-        Ok(mp) => mp,
-        Err(_) => {
-            // Return empty MangasPage on parse error
-            MangasPage {
-                mangas: Vec::new(),
-                has_next: false,
-            }
-        }
-    };
-
-    // Allocate Manga objects and collect their references
-    let mut manga_refs = Vec::with_capacity(mangas_page.mangas.len());
-
-    for manga in mangas_page.mangas {
-        let manga_obj = vm
-            .alloc_native(
-                "Leu/kanade/tachiyomi/source/model/SManga;",
-                Native::SManga {
-                    title: manga.title,
-                    author: Some(manga.author),
-                    artist: Some(manga.artist),
-                    description: Some(manga.description),
-                    genre: Some(manga.genre),
-                    status: manga.status,
-                    thumbnail_url: manga.thumbnail_url,
-                    url: manga.url,
-                    update_strategy: JValue::Null,
-                    memo: JValue::Null,
-                },
-            )
-            .map_err(nat_fatal)?;
-        manga_refs.push(manga_obj);
-    }
-
-    // Allocate MangasPage object
-    vm.alloc_native(
-        "Leu/kanade/tachiyomi/source/model/MangasPage;",
-        Native::SMangasPage {
-            mangas: manga_refs,
-            has_next: mangas_page.has_next,
-        },
-    )
-    .map_err(nat_fatal)
-}
-
-/// Parse MangasPage from JSON string (handles both REST and GraphQL formats).
-fn parse_mangas_page_json(json: &str) -> Result<MangasPage, Box<dyn std::error::Error>> {
-    use serde_json::Value;
-    let v: Value = serde_json::from_str(json)?;
-
-    let mut mangas = Vec::new();
-    let has_next = v.get("hasNext").and_then(|x| x.as_bool()).unwrap_or(false);
-
-    // Try REST format first: { "mangas": [...], "hasNext": bool }
-    let mut found_mangas = false;
-    if let Some(arr) = v.get("mangas").and_then(|x| x.as_array()) {
-        found_mangas = true;
-        for item in arr {
-            let manga = Manga {
-                title: item
-                    .get("title")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                author: item
-                    .get("author")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                artist: item
-                    .get("artist")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                description: item
-                    .get("description")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                genre: item
-                    .get("genre")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                status: item.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                thumbnail_url: item
-                    .get("thumbnailUrl")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: item
-                    .get("url")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-            };
-            mangas.push(manga);
-        }
-    }
-
-    // Try GraphQL format: { "data": { "popularManga": { "mangas": [...], "hasNext": bool } } }
-    // or { "data": { "searchManga": { "mangas": [...], "hasNext": bool } } }
-    // or { "data": { "latestUpdates": { "mangas": [...], "hasNext": bool } } }
-    if !found_mangas {
-        if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
-            for (key, value) in data {
-                if let Some(mangas_obj) = value.get("mangas").and_then(|x| x.as_array()) {
-                    found_mangas = true;
-                    for item in mangas_obj {
-                        let manga = Manga {
-                            title: item
-                                .get("title")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            author: item
-                                .get("author")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            artist: item
-                                .get("artist")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            description: item
-                                .get("description")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            genre: item
-                                .get("genre")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            status: item.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                            thumbnail_url: item
-                                .get("thumbnailUrl")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            url: item
-                                .get("url")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        };
-                        mangas.push(manga);
-                    }
-                    if let Some(has_next_val) = value.get("hasNext").and_then(|x| x.as_bool()) {
-                        // Use GraphQL hasNext if available
-                        // (keep the original has_next from root if not set)
-                    }
-                    break;
-                }
-            }
-        }
-    }
-
-    Ok(MangasPage { mangas, has_next })
-}
-
-/// Intermediate struct for parsed MangasPage data.
-struct MangasPage {
-    mangas: Vec<Manga>,
-    has_next: bool,
-}
-
-/// Intermediate struct for parsed Manga data.
-struct Manga {
-    title: String,
-    author: String,
-    artist: String,
-    description: String,
-    genre: String,
-    status: i32,
-    thumbnail_url: String,
-    url: String,
-}
-
-/// Intermediate struct for parsed Chapter data.
-struct Chapter {
-    name: String,
-    url: String,
-    date_upload: i64,
-    scanlator: String,
-    chapter_number: f32,
-}
-
-/// Intermediate struct for parsed Page data.
-struct Page {
-    index: i32,
-    name: String,
-    url: String,
-    image_url: String,
-}
-
-/// Intermediate struct for parsed Manga details.
-struct MangaDetails {
-    title: String,
-    author: String,
-    artist: String,
-    description: String,
-    genre: String,
-    status: i32,
-    thumbnail_url: String,
-    url: String,
-    update_strategy: i32,
-    memo: String,
-}
-
-/// Parse chapter list JSON from various API formats.
-fn parse_chapter_list_json(json: &str) -> Result<Vec<Chapter>, Box<dyn std::error::Error>> {
-    use serde_json::Value;
-    let v: Value = serde_json::from_str(json)?;
-
-    let mut chapters = Vec::new();
-
-    // Try REST format: { "chapters": [...], "hasNext": bool }
-    if let Some(arr) = v.get("chapters").and_then(|x| x.as_array()) {
-        for item in arr {
-            let chapter = Chapter {
-                name: item
-                    .get("name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: item
-                    .get("url")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                date_upload: item
-                    .get("date_upload")
-                    .and_then(|x| x.as_i64())
-                    .unwrap_or(0),
-                scanlator: item
-                    .get("scanlator")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                chapter_number: item
-                    .get("chapter_number")
-                    .and_then(|x| x.as_f64())
-                    .unwrap_or(0.0) as f32,
-            };
-            chapters.push(chapter);
-        }
-        return Ok(chapters);
-    }
-
-    // Try GraphQL format: { "data": { "chapterList": { "chapters": [...] } } }
-    if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
-        for (_, value) in data {
-            if let Some(arr) = value.get("chapters").and_then(|x| x.as_array()) {
-                for item in arr {
-                    let chapter = Chapter {
-                        name: item
-                            .get("name")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        url: item
-                            .get("url")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        date_upload: item
-                            .get("date_upload")
-                            .and_then(|x| x.as_i64())
-                            .unwrap_or(0),
-                        scanlator: item
-                            .get("scanlator")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        chapter_number: item
-                            .get("chapter_number")
-                            .and_then(|x| x.as_f64())
-                            .unwrap_or(0.0) as f32,
-                    };
-                    chapters.push(chapter);
-                }
-                return Ok(chapters);
-            }
-        }
-    }
-
-    // Try array at root
-    if let Some(arr) = v.as_array() {
-        for item in arr {
-            let chapter = Chapter {
-                name: item
-                    .get("name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: item
-                    .get("url")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                date_upload: item
-                    .get("date_upload")
-                    .and_then(|x| x.as_i64())
-                    .unwrap_or(0),
-                scanlator: item
-                    .get("scanlator")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                chapter_number: item
-                    .get("chapter_number")
-                    .and_then(|x| x.as_f64())
-                    .unwrap_or(0.0) as f32,
-            };
-            chapters.push(chapter);
-        }
-        return Ok(chapters);
-    }
-
-    Ok(chapters)
-}
-
-/// Parse page list JSON from various API formats.
-fn parse_page_list_json(json: &str) -> Result<Vec<Page>, Box<dyn std::error::Error>> {
-    use serde_json::Value;
-    let v: Value = serde_json::from_str(json)?;
-
-    let mut pages = Vec::new();
-
-    // Try REST format: { "pages": [...] } or { "data": { "pages": [...] } }
-    if let Some(arr) = v.get("pages").and_then(|x| x.as_array()) {
-        for item in arr {
-            let page = Page {
-                index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                name: item
-                    .get("name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: item
-                    .get("url")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                image_url: item
-                    .get("imageUrl")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-            };
-            pages.push(page);
-        }
-        return Ok(pages);
-    }
-
-    if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
-        for (_, value) in data {
-            if let Some(arr) = value.get("pages").and_then(|x| x.as_array()) {
-                for item in arr {
-                    let page = Page {
-                        index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                        name: item
-                            .get("name")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        url: item
-                            .get("url")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        image_url: item
-                            .get("imageUrl")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    };
-                    pages.push(page);
-                }
-                return Ok(pages);
-            }
-        }
-    }
-
-    if let Some(arr) = v.as_array() {
-        for item in arr {
-            let page = Page {
-                index: item.get("index").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                name: item
-                    .get("name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: item
-                    .get("url")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                image_url: item
-                    .get("imageUrl")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-            };
-            pages.push(page);
-        }
-        return Ok(pages);
-    }
-
-    Ok(pages)
-}
-
-/// Parse response body into page list (for null receiver fallback).
-pub(crate) fn http_source_page_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    // args[0] = receiver, args[1] = Response
-    let response = args[1];
-    // Extract body from Response object
-    let body_bytes = match payload(vm, response) {
-        Some(Native::Response { body, .. }) => body.clone().unwrap_or_default(),
-        _ => return Err(npe(vm)),
-    };
-
-    // Parse JSON body
-    let body_str = String::from_utf8_lossy(&body_bytes);
-    let page_list = match parse_page_list_json(&body_str) {
-        Ok(list) => list,
-        Err(_) => {
-            // Return empty List on parse error
-            let class = vm.ensure_class_by_desc("Ljava/util/ArrayList;").unwrap();
-            let list_obj = vm
-                .arena
-                .alloc(class, Vec::new(), Some(Native::List(Vec::new())));
-            return Ok(JValue::Obj(list_obj));
-        }
-    };
-
-    // Allocate SPPage objects and collect their references
-    let mut page_refs = Vec::with_capacity(page_list.len());
-
-    for page in page_list {
-        let page_obj = vm
-            .alloc_native(
-                "Leu/kanade/tachiyomi/source/model/Page;",
-                Native::SPPage {
-                    index: page.index,
-                    name: page.name,
-                    url: page.url,
-                    image_url: page.image_url,
-                },
-            )
-            .map_err(|e| nat_fatal(JvmError::Resolution(e.to_string())))?;
-        page_refs.push(page_obj);
-    }
-
-    // Wrap in Java ArrayList
-    let class = vm.ensure_class_by_desc("Ljava/util/ArrayList;").unwrap();
-    let list_obj = vm
-        .arena
-        .alloc(class, page_refs.clone(), Some(Native::List(page_refs)));
-    Ok(JValue::Obj(list_obj))
-}
-
-/// Parse manga details JSON from various API formats.
-fn parse_manga_details_json(json: &str) -> Result<MangaDetails, Box<dyn std::error::Error>> {
-    use serde_json::Value;
-    let v: Value = serde_json::from_str(json)?;
-
-    let mut manga = MangaDetails {
-        title: String::new(),
-        author: String::new(),
-        artist: String::new(),
-        description: String::new(),
-        genre: String::new(),
-        status: 0,
-        thumbnail_url: String::new(),
-        url: String::new(),
-        update_strategy: 0,
-        memo: String::new(),
-    };
-
-    // Try direct fields first
-    manga.title = v
-        .get("title")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.author = v
-        .get("author")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.artist = v
-        .get("artist")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.description = v
-        .get("description")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.genre = v
-        .get("genre")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.status = v.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-    manga.thumbnail_url = v
-        .get("thumbnailUrl")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.url = v
-        .get("url")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-    manga.update_strategy = v
-        .get("updateStrategy")
-        .and_then(|x| x.as_i64())
-        .unwrap_or(0) as i32;
-    manga.memo = v
-        .get("memo")
-        .and_then(|x| x.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    // Try GraphQL format: { "data": { "manga": {...} } }
-    if manga.title.is_empty() {
-        if let Some(data) = v.get("data").and_then(|x| x.as_object()) {
-            for (_, value) in data {
-                if let Some(obj) = value.as_object() {
-                    manga.title = obj
-                        .get("title")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.author = obj
-                        .get("author")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.artist = obj
-                        .get("artist")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.description = obj
-                        .get("description")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.genre = obj
-                        .get("genre")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.status = obj.get("status").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-                    manga.thumbnail_url = obj
-                        .get("thumbnailUrl")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.url = obj
-                        .get("url")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    manga.update_strategy = obj
-                        .get("updateStrategy")
-                        .and_then(|x| x.as_i64())
-                        .unwrap_or(0) as i32;
-                    manga.memo = obj
-                        .get("memo")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
-            }
-        }
-    }
-
-    if manga.title.is_empty() {
-        return Err("No manga found".into());
-    }
-
-    Ok(manga)
-}
-
-/// Parse response body into List<SChapter> for chapter list.
-pub(crate) fn http_source_chapter_list_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    // args[0] = receiver, args[1] = Response
-    http_source_fetch_chapters(vm, &[args[1]])
-}
-
-/// Parse response body into SManga for manga details.
-pub(crate) fn http_source_manga_details_parse(vm: &mut Vm, args: &[JValue]) -> R {
-    http_source_fetch_details(vm, &[args[1]])
+    http_source_get_request(vm, args[0], args[1])
 }
 
 /// Host default for `imageRequest`: `GET page.imageUrl`.
@@ -1455,7 +598,6 @@ pub(crate) fn http_source_image_request(vm: &mut Vm, args: &[JValue]) -> R {
             method: "GET".into(),
             headers: Vec::new(),
             body: None,
-            enqueue_callback: None,
         },
     )
 }
@@ -1466,9 +608,9 @@ fn source_base_url(vm: &mut Vm, src: JValue) -> Result<String, NatErr> {
     use crate::dex::insn::InvokeKind;
     use crate::vm::MethodRef;
     let JValue::Obj(o) = src else {
-        // Return a default base URL when receiver is null
-        // This happens when native is called via invokespecial without receiver
-        return Ok("https://bakkin.moe/reader".to_string());
+        return Err(nat_fatal(crate::vm::error::JvmError::Resolution(
+            "source base url: not a source instance".into(),
+        )));
     };
     let mref = MethodRef {
         name: vm.intern("getBaseUrl"),
@@ -2399,7 +1541,6 @@ pub(crate) fn requests_kt_get_default(vm: &mut Vm, args: &[JValue]) -> R {
             method: "GET".into(),
             headers,
             body: None,
-            enqueue_callback: None,
         },
     )
 }
@@ -2437,7 +1578,6 @@ pub(crate) fn requests_kt_post_default(vm: &mut Vm, args: &[JValue]) -> R {
             method: "POST".into(),
             headers,
             body: Some(body),
-            enqueue_callback: None,
         },
     )
 }
@@ -2567,18 +1707,10 @@ pub const KEIYOUSHI_TABLE: &[NativeEntry] = &[
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "headersBuilder", "()Lokhttp3/Headers$Builder;", true, http_source_headers_builder),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "setUrlWithoutDomain", "(Leu/kanade/tachiyomi/source/model/SManga;Ljava/lang/String;)V", true, http_source_set_url_no_domain_manga),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "setUrlWithoutDomain", "(Leu/kanade/tachiyomi/source/model/SChapter;Ljava/lang/String;)V", true, http_source_set_url_no_domain_chapter),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "popularMangaRequest", "(I)Lokhttp3/Request;", true, http_source_popular_manga_request),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "searchMangaRequest", "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;)Lokhttp3/Request;", true, http_source_search_manga_request),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "latestUpdatesRequest", "(I)Lokhttp3/Request;", true, http_source_latest_updates_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "mangaDetailsRequest", "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;", true, http_source_manga_details_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "relatedMangaListRequest", "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;", true, http_source_manga_details_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "chapterListRequest", "(Leu/kanade/tachiyomi/source/model/SManga;)Lokhttp3/Request;", true, http_source_chapter_list_request),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "pageListRequest", "(Leu/kanade/tachiyomi/source/model/SChapter;)Lokhttp3/Request;", true, http_source_page_list_request),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "popularMangaParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_popular_manga_parse),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "searchMangaParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_search_manga_parse),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "latestUpdatesParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/MangasPage;", true, http_source_latest_updates_parse),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "chapterListParse", "(Lokhttp3/Response;)Ljava/util/List;", true, http_source_chapter_list_parse),
-    ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "mangaDetailsParse", "(Lokhttp3/Response;)Leu/kanade/tachiyomi/source/model/SManga;", true, http_source_manga_details_parse),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "getMangaUrl", "(Leu/kanade/tachiyomi/source/model/SManga;)Ljava/lang/String;", true, http_source_get_manga_url),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "getChapterUrl", "(Leu/kanade/tachiyomi/source/model/SChapter;)Ljava/lang/String;", true, http_source_get_chapter_url),
     ne!("Leu/kanade/tachiyomi/source/online/HttpSource;", "imageRequest", "(Leu/kanade/tachiyomi/source/model/Page;)Lokhttp3/Request;", true, http_source_image_request),

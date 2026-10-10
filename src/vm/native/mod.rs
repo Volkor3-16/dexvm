@@ -114,76 +114,23 @@ mod kotlinx;
 pub(crate) mod okhttp;
 #[cfg(feature = "okhttp")]
 mod okio;
-pub mod http;
+#[cfg(feature = "tachiyomi")]
 pub(crate) mod proto;
 #[cfg(feature = "quickjs")]
 mod quickjs;
+#[cfg(feature = "tachiyomi")]
 mod rx;
+#[cfg(feature = "tachiyomi")]
 pub(crate) mod serialization;
 
-pub(crate) use self::java::eu::kanade::tachiyomi::lazy_app_info_instance;
-pub(crate) use self::java::os::{
-    lazy_build_board,
-    // Lazy functions for shim static fields
-    lazy_build_board_lazy,
-    lazy_build_bootloader,
-    lazy_build_bootloader_lazy,
-    lazy_build_brand,
-    lazy_build_brand_lazy,
-    lazy_build_device,
-    lazy_build_device_lazy,
-    lazy_build_display,
-    lazy_build_display_lazy,
-    lazy_build_fingerprint,
-    lazy_build_fingerprint_lazy,
-    lazy_build_hardware,
-    lazy_build_hardware_lazy,
-    lazy_build_host,
-    lazy_build_host_lazy,
-    lazy_build_id,
-    lazy_build_id_lazy,
-    lazy_build_manufacturer,
-    lazy_build_manufacturer_lazy,
-    lazy_build_model,
-    lazy_build_model_lazy,
-    lazy_build_product,
-    lazy_build_product_lazy,
-    lazy_build_serial,
-    lazy_build_serial_lazy,
-    lazy_build_tags,
-    lazy_build_tags_lazy,
-    lazy_build_type,
-    lazy_build_type_lazy,
-    lazy_build_user,
-    lazy_build_user_lazy,
-    lazy_version_base_os,
-    lazy_version_base_os_lazy,
-    lazy_version_codename,
-    lazy_version_codename_lazy,
-    lazy_version_incremental,
-    lazy_version_incremental_lazy,
-    lazy_version_preview_sdk_int,
-    lazy_version_preview_sdk_int_lazy,
-    lazy_version_release,
-    lazy_version_release_lazy,
-    lazy_version_sdk,
-    lazy_version_sdk_int,
-    lazy_version_sdk_int_lazy,
-    lazy_version_sdk_lazy,
-    lazy_version_security_patch,
-    lazy_version_security_patch_lazy,
-};
-#[cfg(feature = "tachiyomi")]
 #[cfg(feature = "tachiyomi")]
 pub(crate) use self::keiyoushi::*;
 #[cfg(feature = "okhttp")]
 pub(crate) use self::okhttp::*;
 #[cfg(feature = "okhttp")]
 pub(crate) use self::okio::*;
+#[cfg(feature = "tachiyomi")]
 pub(crate) use self::serialization::*;
-#[cfg(feature = "android")]
-pub(crate) use self::{android::*, java::*, kotlin::*};
-#[cfg(not(feature = "android"))]
 pub(crate) use self::{java::*, kotlin::*};
 
 // ---------------------------------------------------------------------------
@@ -228,7 +175,6 @@ pub(crate) fn request_parts(vm: &mut Vm, v: JValue) -> Result<RequestParts, NatE
         method,
         headers,
         body,
-        enqueue_callback: _,
     }) = payload(vm, v)
     else {
         return Err(npe(vm));
@@ -317,7 +263,6 @@ pub(crate) fn native_tables() -> Vec<&'static [NativeEntry]> {
     #[cfg(feature = "okhttp")]
     out.push(okio::OKIO_TABLE);
     #[cfg(feature = "jsoup")]
-    #[cfg(feature = "jsoup")]
     out.push(jsoup::JSOUP_TABLE);
     #[cfg(feature = "android")]
     out.push(android::ANDROID_TABLE);
@@ -326,8 +271,6 @@ pub(crate) fn native_tables() -> Vec<&'static [NativeEntry]> {
     #[cfg(feature = "android")]
     out.push(androidx::preference::TABLE);
     #[cfg(feature = "tachiyomi")]
-    #[cfg(feature = "tachiyomi")]
-#[cfg(feature = "tachiyomi")]
     out.push(keiyoushi::KEIYOUSHI_TABLE);
     #[cfg(feature = "tachiyomi")]
     out.push(serialization::SERIALIZATION_TABLE);
@@ -345,7 +288,6 @@ pub(crate) fn native_tables() -> Vec<&'static [NativeEntry]> {
 pub(crate) fn nat_fatal(e: JvmError) -> NatErr {
     match e {
         JvmError::Uncaught(t) => NatErr::Throw(t),
-        JvmError::Suspended(id) => NatErr::Suspend(id),
         e => NatErr::Fatal(e),
     }
 }
@@ -941,10 +883,6 @@ pub(crate) fn inv_virt(
     sig: &str,
     extra: &[JValue],
 ) -> Result<JValue, NatErr> {
-    // Handle null references (both Null and Int(0))
-    if recv.is_null_ref() {
-        return Err(nat_fatal(JvmError::Fatal("invoke_virtual on null".into())));
-    }
     let mref = MethodRef {
         name: vm.intern(name),
         sig: vm.intern(sig),
@@ -986,12 +924,9 @@ pub(crate) fn to_string_of(vm: &mut Vm, v: JValue) -> Result<String, NatErr> {
 
 /// java.util.Objects.equals semantics.
 pub(crate) fn java_equals(vm: &mut Vm, a: JValue, b: JValue) -> Result<bool, NatErr> {
-    // Treat Int(0) as null reference (DEX null encoding)
-    let a_is_null = a.is_null_ref();
-    let b_is_null = b.is_null_ref();
     let r = match (a, b) {
-        (_, _) if a_is_null && b_is_null => true,
-        (_, _) if a_is_null || b_is_null => false,
+        (JValue::Null, JValue::Null) => true,
+        (JValue::Null, _) | (_, JValue::Null) => false,
         (JValue::Int(x), JValue::Int(y)) => x == y,
         (JValue::Long(x), JValue::Long(y)) => x == y,
         (JValue::Float(x), JValue::Float(y)) => x.to_bits() == y.to_bits(),

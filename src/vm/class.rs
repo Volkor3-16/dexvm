@@ -702,7 +702,11 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         Some("Ljava/lang/Object;"),
         &[],
         0,
-        []
+        [sdef!(
+            "Companion",
+            "Lokhttp3/ResponseBody$Companion;",
+            ShimValue::Lazy(native::lazy_response_body_companion)
+        ),]
     ),
     #[cfg(feature = "okhttp")]
     shim!(
@@ -767,141 +771,10 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     shim!("Landroid/os/Bundle;", Some("Ljava/lang/Object;"), &[], 0),
     #[cfg(feature = "android")]
     shim!(
-        "Landroid/os/Build;",
+        "Landroid/os/SystemClock;",
         Some("Ljava/lang/Object;"),
         &[],
-        0,
-        [
-            sdef!(
-                "BOARD",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_board_lazy)
-            ),
-            sdef!(
-                "BOOTLOADER",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_bootloader_lazy)
-            ),
-            sdef!(
-                "BRAND",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_brand_lazy)
-            ),
-            sdef!(
-                "DEVICE",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_device_lazy)
-            ),
-            sdef!(
-                "DISPLAY",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_display_lazy)
-            ),
-            sdef!(
-                "FINGERPRINT",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_fingerprint_lazy)
-            ),
-            sdef!(
-                "HARDWARE",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_hardware_lazy)
-            ),
-            sdef!(
-                "HOST",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_host_lazy)
-            ),
-            sdef!(
-                "ID",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_id_lazy)
-            ),
-            sdef!(
-                "MANUFACTURER",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_manufacturer_lazy)
-            ),
-            sdef!(
-                "MODEL",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_model_lazy)
-            ),
-            sdef!(
-                "PRODUCT",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_product_lazy)
-            ),
-            sdef!(
-                "SERIAL",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_serial_lazy)
-            ),
-            sdef!(
-                "TAGS",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_tags_lazy)
-            ),
-            sdef!(
-                "TYPE",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_type_lazy)
-            ),
-            sdef!(
-                "USER",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_build_user_lazy)
-            ),
-        ]
-    ),
-    #[cfg(feature = "android")]
-    shim!(
-        "Landroid/os/Build$VERSION;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [
-            sdef!(
-                "CODENAME",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_version_codename_lazy)
-            ),
-            sdef!(
-                "INCREMENTAL",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_version_incremental_lazy)
-            ),
-            sdef!(
-                "RELEASE",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_version_release_lazy)
-            ),
-            sdef!(
-                "SDK",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_version_sdk_lazy)
-            ),
-            sdef!(
-                "SDK_INT",
-                "I",
-                ShimValue::Lazy(native::lazy_version_sdk_int_lazy)
-            ),
-            sdef!(
-                "SECURITY_PATCH",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_version_security_patch_lazy)
-            ),
-            sdef!(
-                "BASE_OS",
-                "Ljava/lang/String;",
-                ShimValue::Lazy(native::lazy_version_base_os_lazy)
-            ),
-            sdef!(
-                "PREVIEW_SDK_INT",
-                "I",
-                ShimValue::Lazy(native::lazy_version_preview_sdk_int_lazy)
-            ),
-        ]
+        0
     ),
     #[cfg(feature = "android")]
     shim!("Landroid/util/Log;", Some("Ljava/lang/Object;"), &[], 0),
@@ -1553,47 +1426,47 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
             sdef!(
                 "US",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_us_vm)
+                ShimValue::Lazy(native::lazy_locale_us)
             ),
             sdef!(
                 "UK",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_uk_vm)
+                ShimValue::Lazy(native::lazy_locale_uk)
             ),
             sdef!(
                 "CANADA",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_canada_vm)
+                ShimValue::Lazy(native::lazy_locale_canada)
             ),
             sdef!(
                 "JAPAN",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_japan_vm)
+                ShimValue::Lazy(native::lazy_locale_japan)
             ),
             sdef!(
                 "KOREA",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_korea_vm)
+                ShimValue::Lazy(native::lazy_locale_korea)
             ),
             sdef!(
                 "CHINA",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_china_vm)
+                ShimValue::Lazy(native::lazy_locale_china)
             ),
             sdef!(
                 "FRANCE",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_france_vm)
+                ShimValue::Lazy(native::lazy_locale_france)
             ),
             sdef!(
                 "GERMANY",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_germany_vm)
+                ShimValue::Lazy(native::lazy_locale_germany)
             ),
             sdef!(
                 "ITALY",
                 "Ljava/util/Locale;",
-                ShimValue::Lazy(native::lazy_locale_italy_vm)
+                ShimValue::Lazy(native::lazy_locale_italy)
             ),
         ]
     ),
@@ -1645,12 +1518,6 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
             "Ljava/util/concurrent/locks/Lock;",
             "Ljava/io/Serializable;"
         ],
-        0
-    ),
-    shim!(
-        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
-        Some("Ljava/lang/Object;"),
-        &["Ljava/io/Serializable;"],
         0
     ),
     shim!(
@@ -1934,7 +1801,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlinx/coroutines/CoroutineScope;",
         None,
         &[],
-        ACC_INTERFACE
+        ACC_INTERFACE | ACC_ABSTRACT
     ),
     shim!(
         "Lkotlin/coroutines/CoroutineContext;",
@@ -1948,7 +1815,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &["Lkotlin/coroutines/CoroutineContext;"],
         ACC_ABSTRACT
     ),
-    shim!("Lkotlinx/coroutines/Job;", None, &[], ACC_INTERFACE),
+    shim!(
+        "Lkotlinx/coroutines/Job;",
+        None,
+        &[],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
     shim!(
         "Lkotlin/coroutines/jvm/internal/SuspendLambda;",
         Some("Ljava/lang/Object;"),
@@ -1959,12 +1831,6 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlin/coroutines/jvm/internal/ContinuationImpl;",
         Some("Ljava/lang/Object;"),
         &["Lkotlin/coroutines/Continuation;"],
-        0
-    ),
-    shim!(
-        "Lkotlin/jvm/internal/markers/KMappedMarker;",
-        Some("Ljava/lang/Object;"),
-        &[],
         0
     ),
     shim!(
@@ -2130,79 +1996,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         0
     ),
-    // Missing kotlinx.serialization serializer classes with INSTANCE static fields
     #[cfg(feature = "tachiyomi")]
     shim!(
-        "Lkotlinx/serialization/json/JsonElementSerializer;",
-        Some("Ljava/lang/Object;"),
+        "Lkotlinx/serialization/json/JsonLiteral;",
+        Some("Lkotlinx/serialization/json/JsonPrimitive;"),
         &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/serialization/json/JsonElementSerializer;",
-            ShimValue::Lazy(native::lazy_json_element_serializer_instance)
-        )]
-    ),
-    #[cfg(feature = "tachiyomi")]
-    shim!(
-        "Lkotlinx/serialization/json/JsonArraySerializer;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/serialization/json/JsonArraySerializer;",
-            ShimValue::Lazy(native::lazy_json_array_serializer_instance)
-        )]
-    ),
-    #[cfg(feature = "tachiyomi")]
-    shim!(
-        "Lkotlinx/serialization/json/JsonPrimitiveSerializer;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/serialization/json/JsonPrimitiveSerializer;",
-            ShimValue::Lazy(native::lazy_json_primitive_serializer_instance)
-        )]
-    ),
-    #[cfg(feature = "tachiyomi")]
-    shim!(
-        "Lkotlinx/serialization/json/JsonObjectSerializer;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/serialization/json/JsonObjectSerializer;",
-            ShimValue::Lazy(native::lazy_json_object_serializer_instance)
-        )]
-    ),
-    #[cfg(feature = "tachiyomi")]
-    shim!(
-        "Lkotlinx/serialization/json/JsonNullSerializer;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/serialization/json/JsonNullSerializer;",
-            ShimValue::Lazy(native::lazy_json_null_serializer_instance)
-        )]
-    ),
-    // Json$Default with INSTANCE
-    #[cfg(feature = "tachiyomi")]
-    shim!(
-        "Lkotlinx/serialization/json/Json$Default;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/serialization/json/Json$Default;",
-            ShimValue::Lazy(native::lazy_json_default_instance)
-        )]
+        0
     ),
     #[cfg(feature = "tachiyomi")]
     shim!(
@@ -2712,27 +2511,11 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     ),
     #[cfg(feature = "kotlin")]
     shim!(
-        "Lkotlin/ranges/IntIterator;",
-        Some("Lkotlin/collections/IntIterator;"),
-        &["Ljava/util/Iterator;"],
-        0,
-        [],
-        fields = [("first", "I"), ("last", "I"), ("step", "I"), ("next", "I")]
-    ),
-    #[cfg(feature = "kotlin")]
-    shim!(
         "Lkotlin/ranges/IntProgression;",
         Some("Ljava/lang/Object;"),
         &[],
-        0,
-        [sdef!(
-            "iterator",
-            "Lkotlin/ranges/IntIterator;",
-            ShimValue::Lazy(native::lazy_int_progression_iterator)
-        ),]
+        0
     ),
-    // Debug: check if this shim is registered
-    // The shim should have desc == "Lkotlin/ranges/IntProgression;"
     #[cfg(feature = "kotlin")]
     shim!(
         "Lkotlin/ranges/ClosedRange;",
@@ -3498,12 +3281,7 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Leu/kanade/tachiyomi/AppInfo;",
         Some("Ljava/lang/Object;"),
         &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Leu/kanade/tachiyomi/AppInfo;",
-            ShimValue::Lazy(native::lazy_app_info_instance)
-        ),]
+        0
     ),
     #[cfg(feature = "tachiyomi")]
     shim!(
@@ -3751,73 +3529,70 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         ],
         0
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CancellableContinuationImpl;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CompletableDeferred;",
         None,
         &[],
-        ACC_INTERFACE
+        ACC_INTERFACE | ACC_ABSTRACT
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CompletableDeferredKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/CompletableJob;",
         None,
         &[],
-        ACC_INTERFACE
+        ACC_INTERFACE | ACC_ABSTRACT
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/DelayKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
-    shim!("Lkotlinx/coroutines/Deferred;", None, &[], ACC_INTERFACE),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/MainCoroutineDispatcher;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/SupervisorKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/TimeoutKt;",
         Some("Ljava/lang/Object;"),
         &[],
         0
     ),
+    #[cfg(feature = "tachiyomi")]
     shim!(
-        "Lkotlinx/coroutines/Dispatchers;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [sdef!(
-            "INSTANCE",
-            "Lkotlinx/coroutines/Dispatchers;",
-            ShimValue::Lazy(native::lazy_dispatchers_instance)
-        ),]
-    ),
-    shim!(
-        "Lkotlinx/coroutines/CoroutineStart;",
+        "Lkotlinx/coroutines/sync/Mutex;",
         None,
         &[],
-        ACC_INTERFACE
+        ACC_INTERFACE | ACC_ABSTRACT
     ),
-    shim!("Lkotlinx/coroutines/sync/Mutex;", None, &[], ACC_INTERFACE),
+    #[cfg(feature = "tachiyomi")]
     shim!(
         "Lkotlinx/coroutines/sync/MutexKt;",
         Some("Ljava/lang/Object;"),
@@ -3936,164 +3711,6 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         None,
         &[],
         ACC_INTERFACE | ACC_ABSTRACT
-    ),
-    shim!(
-        "Ljava/time/temporal/ChronoField;",
-        Some("Ljava/lang/Object;"),
-        &[],
-        0,
-        [
-            sdef!(
-                "NANO_OF_SECOND",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "NANO_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MICRO_OF_SECOND",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MICRO_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MILLI_OF_SECOND",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MILLI_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "SECOND_OF_MINUTE",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "SECOND_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MINUTE_OF_HOUR",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MINUTE_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "HOUR_OF_AMPM",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "CLOCK_HOUR_OF_AMPM",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "HOUR_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "CLOCK_HOUR_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "AMPM_OF_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "DAY_OF_WEEK",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "ALIGNED_DAY_OF_WEEK_IN_MONTH",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "ALIGNED_DAY_OF_WEEK_IN_YEAR",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "DAY_OF_MONTH",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "DAY_OF_YEAR",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "EPOCH_DAY",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "ALIGNED_WEEK_OF_MONTH",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "ALIGNED_WEEK_OF_YEAR",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "MONTH_OF_YEAR",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "PROLEPTIC_MONTH",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "YEAR_OF_ERA",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "YEAR",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "ERA",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "INSTANT_SECONDS",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-            sdef!(
-                "OFFSET_SECONDS",
-                "Ljava/time/temporal/ChronoField;",
-                ShimValue::Const(JValue::Null)
-            ),
-        ]
     ),
     shim!(
         "Ljava/time/format/DateTimeFormatterBuilder;",
