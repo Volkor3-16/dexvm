@@ -10,9 +10,28 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import threading
 
-# Read URLs from browser output
-with open('/tmp/pi-browser-81vjkJ/output.txt', 'r') as f:
-    output = f.read()
+import sys
+
+# Read URLs from browser output file or fetch from GitHub releases API
+if len(sys.argv) > 1:
+    # Read from file
+    with open(sys.argv[1], 'r') as f:
+        output = f.read()
+else:
+    # Try to find browser output
+    import glob
+    browser_files = glob.glob('/tmp/pi-browser-*/output.txt')
+    if not browser_files:
+        print("No browser output found. Run:")
+        print("  browser_open https://github.com/keiyoushi/extensions/releases")
+        print("  browser_snapshot")
+        print("  browser_read > /tmp/extensions.txt")
+        print("Then: python3 download_all_extensions.py /tmp/extensions.txt")
+        sys.exit(1)
+    # Use most recent
+    browser_files.sort(key=os.path.getmtime, reverse=True)
+    with open(browser_files[0], 'r') as f:
+        output = f.read()
 
 urls = re.findall(r'https://github.com/keiyoushi/extensions/releases/download/[^"\s)]+\.apk', output)
 unique_urls = sorted(set(urls))

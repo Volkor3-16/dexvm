@@ -1,3 +1,6 @@
 /target
 fixtures/live/
 fixtures/batch/
+fixtures/keiyoushi_all/
+report_*.json
+reports/
