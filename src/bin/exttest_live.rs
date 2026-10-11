@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use dexvm::keiyoushi::{FilterState, HttpData, HttpResp, Keiyoushi, Manga, MangaPages};
 use dexvm::vm::error::JvmError;
-use dexvm::{permission, Context};
+use dexvm::{permission, Context, ContextError};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 

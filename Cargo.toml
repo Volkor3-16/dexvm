@@ -27,6 +27,8 @@ okhttp = []
 quickjs = ["dep:rquickjs"]
 # host shim classes for the mihon extension API (eu.kanade.tachiyomi.source.*)
 tachiyomi = []
+# Live capture/replay testing (requires tokio, reqwest)
+live = ["dep:tokio", "dep:reqwest"]
 # compat alias: full mihon/keiyoushi source pipeline (the `keiyoushi` bridge)
 keiyoushi = ["tachiyomi", "kotlin", "injekt", "jsoup", "android", "okhttp", "quickjs"]
 
@@ -111,6 +113,8 @@ ureq = { version = "3.4.0", features = ["cookies"] }
 rquickjs = { version = "0.12.2", optional = true }
 zune-png = { version = "0.5.2", default-features = false, optional = true }
 zune-jpeg = { version = "0.5.15", default-features = false, optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], optional = true }
 raqote = { version = "0.8.5", optional = true }
 num-bigint = "0.5.1"
 num-traits = "0.2.19"
@@ -120,3 +124,5 @@ unicode-normalization = "0.1.25"
 aes-gcm = "0.11.0"
 ureq = { version = "3.4.0", features = ["cookies"] }
 env_logger = "0.11"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
