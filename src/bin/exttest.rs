@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use dexvm::keiyoushi::{FilterState, HttpData, HttpResp, Keiyoushi, Manga, MangaPages};
 use dexvm::vm::error::JvmError;
-use dexvm::{permission, Context};
+use dexvm::{permission, Context, ContextError};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -547,8 +547,14 @@ fn test_extension(
     let (manifest_package, manifest_name, manifest_version) =
         load_manifest(apk_path).unwrap_or((None, None, None));
 
-    // Create Keiyoushi with HTTP handler
-    let mut ext = match Keiyoushi::open(apk_path) {
+    // Load core library DEX
+    let core_lib = std::fs::read("fixtures/keiyoushi-core.dex").unwrap_or_default();
+
+    // Create Keiyoushi with core library
+    let mut ext = match Keiyoushi::new_with_libraries(
+        &std::fs::read(apk_path).map_err(ContextError::Io)?,
+        &[&core_lib],
+    ) {
         Ok(ext) => ext,
         Err(e) => {
             let err = format!("Failed to load APK: {}", e);
