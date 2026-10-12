@@ -281,8 +281,10 @@ impl Keiyoushi {
     pub fn sources(&mut self) -> Result<Vec<Source>, JvmError> {
         let factory = self.vm().find_factory_class("createSources");
         if let Ok(desc) = factory {
+            eprintln!("DEBUG sources: found factory class: {}", desc);
             self.ctx.call(&desc, "<init>", &[])?;
             let list = self.ctx.invoke("createSources", &[])?;
+            eprintln!("DEBUG sources: createSources returned: {:?}", list);
             let items = match list {
                 JValue::Obj(id) => match &self.vm().arena.objects[id as usize].native {
                     Some(Native::List(items)) => items.clone(),
@@ -290,15 +292,23 @@ impl Keiyoushi {
                 },
                 _ => return Err(JvmError::Resolution("createSources: bad result".into())),
             };
+            eprintln!("DEBUG sources: createSources returned {} items", items.len());
             let mut out = Vec::new();
             for item in items {
                 if let JValue::Obj(o) = item {
+                    let class_desc = {
+                        let vm = self.vm();
+                        vm.str_of(vm.arena.objects[o as usize].class)
+                            .to_string()
+                    };
+                    eprintln!("DEBUG sources: item class = {}", class_desc);
                     out.push(Source { inst: o });
                 }
             }
             return Ok(out);
         }
         let desc = self.vm().find_http_source_subclass()?;
+        eprintln!("DEBUG sources: using HttpSource subclass: {}", desc);
         self.ctx.call(&desc, "<init>", &[])?;
         let inst = self
             .ctx
@@ -352,12 +362,21 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
-        let req = self.ctx.invoke_on(
+        // Try legacy method first
+        let req = match self.ctx.invoke_on(
             src.inst,
             "popularMangaRequest",
             "(I)Lokhttp3/Request;",
             &[JValue::Int(page)],
-        )?;
+        ) {
+            Ok(req) => req,
+            Err(e) if e.to_string().contains("resolution error") => {
+                // Fallback to coroutine method
+                eprintln!("DEBUG popular: popularMangaRequest not found, falling back to getPopularManga coroutine");
+                return self.popular_coro(src, page);
+            }
+            Err(e) => return Err(e),
+        };
         let resp = self.execute(req)?;
         let mangas = self.ctx.invoke_on(
             src.inst,
@@ -377,12 +396,20 @@ impl Keiyoushi {
         )? {
             return self.manga_pages(mangas);
         }
-        let req = self.ctx.invoke_on(
+        // Try legacy method first
+        let req = match self.ctx.invoke_on(
             src.inst,
             "latestUpdatesRequest",
             "(I)Lokhttp3/Request;",
             &[JValue::Int(page)],
-        )?;
+        ) {
+            Ok(req) => req,
+            Err(e) if e.to_string().contains("resolution error") => {
+                eprintln!("DEBUG latest: latestUpdatesRequest not found, falling back to getLatestUpdates coroutine");
+                return self.latest_coro(src, page);
+            }
+            Err(e) => return Err(e),
+        };
         let resp = self.execute(req)?;
         let mangas = self.ctx.invoke_on(
             src.inst,
@@ -416,12 +443,20 @@ impl Keiyoushi {
             return self.manga_pages(mangas);
         }
 
-        let req = self.ctx.invoke_on(
+        // Try legacy method first
+        let req = match self.ctx.invoke_on(
             src.inst,
             "searchMangaRequest",
             "(ILjava/lang/String;Leu/kanade/tachiyomi/source/model/FilterList;)Lokhttp3/Request;",
             &[JValue::Int(page), query_obj, flist],
-        )?;
+        ) {
+            Ok(req) => req,
+            Err(e) if e.to_string().contains("resolution error") => {
+                eprintln!("DEBUG search: searchMangaRequest not found, falling back to getSearchManga coroutine");
+                return self.search_coro(src, page, query, filters);
+            }
+            Err(e) => return Err(e),
+        };
         let resp = self.execute(req)?;
         let mangas = self.ctx.invoke_on(
             src.inst,

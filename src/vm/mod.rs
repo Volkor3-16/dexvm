@@ -1229,11 +1229,13 @@ impl Vm {
                         .get(s as usize)
                         .and_then(|&si| dex.strings.get(si as usize).cloned()),
                 };
+                eprintln!("DEBUG find_http_source_subclass: checking class {} (super={:?})", type_str, sup_desc);
                 let mut reaches = false;
                 for _ in 0..4 {
                     let Some(sup) = sup_desc else {
                         break;
                     };
+                    eprintln!("DEBUG find_http_source_subclass:   walk sup={}", sup);
                     if sup.as_ref() == TARGET {
                         reaches = true;
                         break;
@@ -1241,6 +1243,7 @@ impl Vm {
                     sup_desc = self.class_location(&sup).and_then(|(di, def_idx)| {
                         let d = &self.dexes[di as usize];
                         let cd2 = &d.classes[def_idx];
+                        eprintln!("DEBUG find_http_source_subclass:   class_location({}) -> dex={}, class_idx={}, super={}", sup, di, def_idx, cd2.superclass_idx);
                         match cd2.superclass_idx {
                             u32::MAX => None,
                             s => d
@@ -1251,16 +1254,19 @@ impl Vm {
                     });
                 }
                 if !reaches {
+                    eprintln!("DEBUG find_http_source_subclass: {} does NOT reach HttpSource", type_str);
                     continue;
                 }
                 if cd.access_flags & ACC_ABSTRACT != 0 {
                     continue;
                 }
+                eprintln!("DEBUG find_http_source_subclass: candidate = {}, is_entry = {}", type_str, type_str.ends_with("ExtensionGenerated;"));
                 candidates.push((type_str.clone(), type_str.ends_with("ExtensionGenerated;")));
             }
         }
         candidates.sort_by_key(|(_, is_entry)| !*is_entry);
         if let Some((type_str, _)) = candidates.first() {
+            eprintln!("DEBUG find_http_source_subclass: SELECTED = {}", type_str);
             let cid = self.ensure_class_by_desc(type_str)?;
             return Ok(self
                 .str_of(self.classes[cid as usize].descriptor)

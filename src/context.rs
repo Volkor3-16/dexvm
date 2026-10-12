@@ -200,13 +200,22 @@ impl Context {
             }
         }
 
-        let (mut dexes_data, mut resources) = container_contents(data)?;
+        // Libraries are loaded FIRST (prepended) so their classes are available
+        // when the main APK's classes are loaded (e.g., HttpSource for extensions)
+        let mut dexes_data = Vec::new();
+        let mut resources = HashMap::new();
         for library in libraries {
             let (library_dexes, library_resources) = container_contents(library)?;
             dexes_data.extend(library_dexes);
             for (name, bytes) in library_resources {
                 resources.entry(name).or_insert(bytes);
             }
+        }
+        // Then add the main APK's DEX
+        let (main_dexes, main_resources) = container_contents(data)?;
+        dexes_data.extend(main_dexes);
+        for (name, bytes) in main_resources {
+            resources.entry(name).or_insert(bytes);
         }
         let mut dexes = Vec::with_capacity(dexes_data.len());
         for d in dexes_data {
@@ -836,6 +845,16 @@ mod tests {
             JValue::Int(123)
         );
         let vm = ctx.vm();
+        // Debug: print DEX info
+        eprintln!("Number of DEXes: {}", vm.dexes.len());
+        for (i, d) in vm.dexes.iter().enumerate() {
+            eprintln!("  DEX {}: {} strings, {} classes", i, d.strings.len(), d.classes.len());
+            for s in d.strings.iter() {
+                if s.as_ref() == "Lk;" {
+                    eprintln!("  Found Lk; in DEX {}", i);
+                }
+            }
+        }
         let helper = vm.ensure_class_by_desc("Lm2/Helper;").unwrap();
         let method = vm.classes[helper as usize]
             .methods
@@ -844,8 +863,8 @@ mod tests {
             .unwrap();
         assert!(method.native_key.is_none());
         assert!(method.code.is_some());
-        // The application's primary DEX remains the public primary view.
-        assert!(ctx.dex().strings.iter().any(|s| s.as_ref() == "Lk;"));
+        // The application's primary DEX is now at index 1 (library at 0).
+        assert!(vm.dexes.iter().any(|d| d.strings.iter().any(|s| s.as_ref() == "Lk;")));
     }
 
     #[test]
