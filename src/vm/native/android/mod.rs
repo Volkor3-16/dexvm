@@ -293,6 +293,33 @@ pub(crate) fn shared_prefs_get_float(vm: &mut Vm, args: &[JValue]) -> R {
     )
 }
 
+pub(crate) fn shared_prefs_get_all(vm: &mut Vm, args: &[JValue]) -> R {
+    let name = shared_prefs_name(vm, args[0])?;
+    let map = vm.shared_preferences.get(&name).cloned().unwrap_or_default();
+    let mut map_obj = alloc(vm, "Ljava/util/HashMap;", Native::Map(Vec::new()))?;
+    let map_obj_id = match map_obj {
+        JValue::Obj(id) => id,
+        _ => return Err(nat_fatal(JvmError::Resolution("failed to allocate HashMap".into()))),
+    };
+    for (key, value) in map {
+        let key_str = vm.alloc_string(&key);
+        let value_obj = match value {
+            PreferenceValue::Bool(b) => alloc(vm, "Ljava/lang/Boolean;", Native::BoolBox(b))?,
+            PreferenceValue::String(s) => new_str(vm, &s),
+            PreferenceValue::Int(i) => alloc(vm, "Ljava/lang/Integer;", Native::IntBox(i))?,
+            PreferenceValue::Long(l) => alloc(vm, "Ljava/lang/Long;", Native::LongBox(l))?,
+            PreferenceValue::Float(f) => alloc(vm, "Ljava/lang/Float;", Native::FloatBox(f))?,
+        };
+        // Get mutable access to the map object in the arena
+        let obj = vm.arena.get_mut(map_obj_id).ok_or_else(|| nat_fatal(JvmError::Resolution("map object not found".into())))?;
+        let Some(Native::Map(ref mut entries)) = obj.native else {
+            return Err(nat_fatal(JvmError::Resolution("not a map".into())));
+        };
+        entries.push((key_str, value_obj));
+    }
+    Ok(JValue::Obj(map_obj_id))
+}
+
 pub(crate) fn shared_prefs_contains(vm: &mut Vm, args: &[JValue]) -> R {
     let name = shared_prefs_name(vm, args[0])?;
     let key = jstr(vm, args[1])?;
@@ -1979,6 +2006,13 @@ pub(crate) const ANDROID_TABLE: &[NativeEntry] = &[
         "(Ljava/lang/String;F)F",
         true,
         shared_prefs_get_float
+    ),
+    ne!(
+        "Landroid/content/SharedPreferences;",
+        "getAll",
+        "()Ljava/util/Map;",
+        true,
+        shared_prefs_get_all
     ),
     ne!(
         "Landroid/content/SharedPreferences;",
