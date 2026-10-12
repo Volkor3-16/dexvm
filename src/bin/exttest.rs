@@ -550,11 +550,14 @@ fn test_extension(
     // Load core library DEX
     let core_lib = std::fs::read("fixtures/keiyoushi-core.dex").unwrap_or_default();
     eprintln!("DEBUG: Core lib size = {} bytes", core_lib.len());
+    // Load serialization library DEX
+    let serial_lib = std::fs::read("fixtures/keiyoushi-serialization.dex").unwrap_or_default();
+    eprintln!("DEBUG: Serial lib size = {} bytes", serial_lib.len());
 
-    // Create Keiyoushi with core library only
+    // Create Keiyoushi with core library and serialization library
     let mut ext = match Keiyoushi::new_with_libraries(
         &std::fs::read(apk_path).map_err(ContextError::Io)?,
-        &[&core_lib],
+        &[&core_lib, &serial_lib],
     ) {
         Ok(ext) => ext,
         Err(e) => {
