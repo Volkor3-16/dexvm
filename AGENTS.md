@@ -24,3 +24,7 @@
 - `src/keiyoushi.rs` — typed bridge (`sources`, `popular`, `search`, `manga_details`, `chapters`, `pages`, `filters`); the `*_coro` variants replay dex suspend-coroutine continuations (`suspend_cont`).
 - `src/bin/dexcli.rs` — debugging CLI over `fixtures/*.apk`: `--classes`, `--methods <class>`, `--code <class> <method>` (dumps all overloads), `--run`, `--call`. Fast way to inspect extension bytecode (e.g. probe a native call site before instrumenting the VM).
 - Sandbox: everything denied by default; grant via `SandboxOptions` or `Context::grant`; host natives must call `vm.check_permission`, not just perform side effects.
+
+## Post-Commit report
+
+When you make a commit, run `run.sh` in reports/ directory to build a markdown report <commit>.md, showing the compatiblity changes from the previous commit. the compiled reports (json and markdown) are read only, do not delete them.
