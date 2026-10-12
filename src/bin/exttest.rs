@@ -549,8 +549,9 @@ fn test_extension(
 
     // Load core library DEX
     let core_lib = std::fs::read("fixtures/keiyoushi-core.dex").unwrap_or_default();
+    eprintln!("DEBUG: Core lib size = {} bytes", core_lib.len());
 
-    // Create Keiyoushi with core library
+    // Create Keiyoushi with core library only
     let mut ext = match Keiyoushi::new_with_libraries(
         &std::fs::read(apk_path).map_err(ContextError::Io)?,
         &[&core_lib],
