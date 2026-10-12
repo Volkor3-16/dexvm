@@ -292,14 +292,16 @@ impl Keiyoushi {
                 },
                 _ => return Err(JvmError::Resolution("createSources: bad result".into())),
             };
-            eprintln!("DEBUG sources: createSources returned {} items", items.len());
+            eprintln!(
+                "DEBUG sources: createSources returned {} items",
+                items.len()
+            );
             let mut out = Vec::new();
             for item in items {
                 if let JValue::Obj(o) = item {
                     let class_desc = {
                         let vm = self.vm();
-                        vm.str_of(vm.arena.objects[o as usize].class)
-                            .to_string()
+                        vm.str_of(vm.arena.objects[o as usize].class).to_string()
                     };
                     eprintln!("DEBUG sources: item class = {}", class_desc);
                     out.push(Source { inst: o });

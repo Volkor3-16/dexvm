@@ -848,7 +848,12 @@ mod tests {
         // Debug: print DEX info
         eprintln!("Number of DEXes: {}", vm.dexes.len());
         for (i, d) in vm.dexes.iter().enumerate() {
-            eprintln!("  DEX {}: {} strings, {} classes", i, d.strings.len(), d.classes.len());
+            eprintln!(
+                "  DEX {}: {} strings, {} classes",
+                i,
+                d.strings.len(),
+                d.classes.len()
+            );
             for s in d.strings.iter() {
                 if s.as_ref() == "Lk;" {
                     eprintln!("  Found Lk; in DEX {}", i);
@@ -864,7 +869,10 @@ mod tests {
         assert!(method.native_key.is_none());
         assert!(method.code.is_some());
         // The application's primary DEX is now at index 1 (library at 0).
-        assert!(vm.dexes.iter().any(|d| d.strings.iter().any(|s| s.as_ref() == "Lk;")));
+        assert!(vm
+            .dexes
+            .iter()
+            .any(|d| d.strings.iter().any(|s| s.as_ref() == "Lk;")));
     }
 
     #[test]

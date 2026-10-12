@@ -1229,7 +1229,10 @@ impl Vm {
                         .get(s as usize)
                         .and_then(|&si| dex.strings.get(si as usize).cloned()),
                 };
-                eprintln!("DEBUG find_http_source_subclass: checking class {} (super={:?})", type_str, sup_desc);
+                eprintln!(
+                    "DEBUG find_http_source_subclass: checking class {} (super={:?})",
+                    type_str, sup_desc
+                );
                 let mut reaches = false;
                 for _ in 0..4 {
                     let Some(sup) = sup_desc else {
@@ -1254,13 +1257,20 @@ impl Vm {
                     });
                 }
                 if !reaches {
-                    eprintln!("DEBUG find_http_source_subclass: {} does NOT reach HttpSource", type_str);
+                    eprintln!(
+                        "DEBUG find_http_source_subclass: {} does NOT reach HttpSource",
+                        type_str
+                    );
                     continue;
                 }
                 if cd.access_flags & ACC_ABSTRACT != 0 {
                     continue;
                 }
-                eprintln!("DEBUG find_http_source_subclass: candidate = {}, is_entry = {}", type_str, type_str.ends_with("ExtensionGenerated;"));
+                eprintln!(
+                    "DEBUG find_http_source_subclass: candidate = {}, is_entry = {}",
+                    type_str,
+                    type_str.ends_with("ExtensionGenerated;")
+                );
                 candidates.push((type_str.clone(), type_str.ends_with("ExtensionGenerated;")));
             }
         }
