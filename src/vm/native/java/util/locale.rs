@@ -29,7 +29,6 @@ locale_const!(lazy_locale_korea, "ko-KR");
 locale_const!(lazy_locale_china, "zh-CN");
 locale_const!(lazy_locale_france, "fr-FR");
 locale_const!(lazy_locale_germany, "de-DE");
-locale_const!(lazy_locale_french, "fr-FR");
 locale_const!(lazy_locale_italy, "it-IT");
 
 // java.util.Locale host shims.

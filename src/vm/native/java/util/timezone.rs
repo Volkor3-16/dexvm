@@ -19,11 +19,7 @@ pub(crate) fn time_zone_to_zone_id(vm: &mut Vm, args: &[JValue]) -> R {
     let Some(Native::TimeZone(id)) = payload(vm, args[0]) else {
         return Err(npe(vm));
     };
-    alloc(
-        vm,
-        "Ljava/time/ZoneId;",
-        Native::ZoneId(id.to_string()),
-    )
+    alloc(vm, "Ljava/time/ZoneId;", Native::ZoneId(id.to_string()))
 }
 
 /// Native methods for Ljava/util/TimeZone;

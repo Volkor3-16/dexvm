@@ -10,10 +10,11 @@ macro_rules! chrono_field_const {
             let Ok(class) = _vm.ensure_class_by_desc("Ljava/time/temporal/ChronoField;") else {
                 return Ok(JValue::Null);
             };
-            Ok(JValue::Obj(
-                _vm.arena
-                    .alloc(class, Vec::new(), Some(Native::Str($tag.into()))),
-            ))
+            Ok(JValue::Obj(_vm.arena.alloc(
+                class,
+                Vec::new(),
+                Some(Native::Str($tag.into())),
+            )))
         }
     };
 }

@@ -12,6 +12,7 @@ mod local_date_time;
 mod zone_id;
 mod zoned_date_time;
 
+#[allow(unused_imports)]
 pub(crate) use chrono_field::TABLE;
 pub(crate) use chrono_unit::{
     days as lazy_chrono_unit_days, hours as lazy_chrono_unit_hours,
