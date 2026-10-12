@@ -295,11 +295,19 @@ pub(crate) fn shared_prefs_get_float(vm: &mut Vm, args: &[JValue]) -> R {
 
 pub(crate) fn shared_prefs_get_all(vm: &mut Vm, args: &[JValue]) -> R {
     let name = shared_prefs_name(vm, args[0])?;
-    let map = vm.shared_preferences.get(&name).cloned().unwrap_or_default();
-    let mut map_obj = alloc(vm, "Ljava/util/HashMap;", Native::Map(Vec::new()))?;
+    let map = vm
+        .shared_preferences
+        .get(&name)
+        .cloned()
+        .unwrap_or_default();
+    let map_obj = alloc(vm, "Ljava/util/HashMap;", Native::Map(Vec::new()))?;
     let map_obj_id = match map_obj {
         JValue::Obj(id) => id,
-        _ => return Err(nat_fatal(JvmError::Resolution("failed to allocate HashMap".into()))),
+        _ => {
+            return Err(nat_fatal(JvmError::Resolution(
+                "failed to allocate HashMap".into(),
+            )))
+        }
     };
     for (key, value) in map {
         let key_str = vm.alloc_string(&key);
@@ -310,8 +318,11 @@ pub(crate) fn shared_prefs_get_all(vm: &mut Vm, args: &[JValue]) -> R {
             PreferenceValue::Long(l) => alloc(vm, "Ljava/lang/Long;", Native::LongBox(l))?,
             PreferenceValue::Float(f) => alloc(vm, "Ljava/lang/Float;", Native::FloatBox(f))?,
         };
-        // Get mutable access to the map object in the arena
-        let obj = vm.arena.get_mut(map_obj_id).ok_or_else(|| nat_fatal(JvmError::Resolution("map object not found".into())))?;
+        // Get access to the map object in the arena
+        let obj = vm
+            .arena
+            .get_mut(map_obj_id)
+            .ok_or_else(|| nat_fatal(JvmError::Resolution("map object not found".into())))?;
         let Some(Native::Map(ref mut entries)) = obj.native else {
             return Err(nat_fatal(JvmError::Resolution("not a map".into())));
         };
