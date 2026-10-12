@@ -15,6 +15,17 @@ pub(crate) fn time_zone_get_default(vm: &mut Vm, _args: &[JValue]) -> R {
     )
 }
 
+pub(crate) fn time_zone_to_zone_id(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::TimeZone(id)) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    alloc(
+        vm,
+        "Ljava/time/ZoneId;",
+        Native::ZoneId(id.to_string()),
+    )
+}
+
 /// Native methods for Ljava/util/TimeZone;
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
@@ -30,5 +41,12 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "()Ljava/util/TimeZone;",
         false,
         time_zone_get_default
+    ),
+    ne!(
+        "Ljava/util/TimeZone;",
+        "toZoneId",
+        "()Ljava/time/ZoneId;",
+        true,
+        time_zone_to_zone_id
     ),
 ];

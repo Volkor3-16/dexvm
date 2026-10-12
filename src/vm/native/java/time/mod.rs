@@ -2,6 +2,7 @@
 
 use crate::vm::native::*;
 
+mod chrono_field;
 mod chrono_unit;
 mod date_time_formatter;
 mod date_time_formatter_builder;
@@ -11,6 +12,7 @@ mod local_date_time;
 mod zone_id;
 mod zoned_date_time;
 
+pub(crate) use chrono_field::TABLE;
 pub(crate) use chrono_unit::{
     days as lazy_chrono_unit_days, hours as lazy_chrono_unit_hours,
     millis as lazy_chrono_unit_millis, minutes as lazy_chrono_unit_minutes,
@@ -27,4 +29,5 @@ pub(crate) const TIME_TABLE: &[&[NativeEntry]] = &[
     local_date_time::TABLE,
     zoned_date_time::TABLE,
     instant::TABLE,
+    chrono_field::TABLE,
 ];

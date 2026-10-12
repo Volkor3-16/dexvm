@@ -607,7 +607,7 @@ pub(crate) fn default_native_for(vm: &mut Vm, id: u32) -> Option<Native> {
             "Ljava/util/concurrent/Semaphore;" => Some(Native::Semaphore(0)),
             "Ljava/time/LocalDate;" => Some(Native::LocalDay(0)),
             "Ljava/time/ZonedDateTime;" | "Ljava/time/Instant;" => Some(Native::EpochMillis(0)),
-            "Ljava/time/ZoneId;" => Some(Native::Opaque),
+            "Ljava/time/ZoneId;" => Some(Native::ZoneId(String::new())),
             "Ljava/time/format/DateTimeFormatter;" => Some(Native::DateFormatter {
                 pattern: String::new(),
                 zone: String::new(),

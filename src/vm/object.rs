@@ -505,6 +505,8 @@ pub enum Native {
     },
     /// java.util.TimeZone (zone id string, e.g. "UTC", "GMT+07:00").
     TimeZone(String),
+    /// java.time.ZoneId (zone id string, e.g. "UTC", "Asia/Ho_Chi_Minh").
+    ZoneId(String),
     /// java.text.SimpleDateFormat: pattern + resolved time zone id.
     DateFormatter {
         pattern: String,
@@ -1174,7 +1176,8 @@ impl Native {
             | Native::Timeout { .. }
             | Native::OkioBuf { .. }
             | Native::OkioSink { .. }
-            | Native::Type { .. } => {}
+            | Native::Type { .. }
+            | Native::ZoneId(_) => {}
         }
     }
 }

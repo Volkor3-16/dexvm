@@ -50,6 +50,14 @@ fn builder_to_formatter(vm: &mut Vm, args: &[JValue]) -> R {
     )
 }
 
+/// `parseCaseInsensitive` - enables case-insensitive parsing for the formatter.
+/// Returns `this` for chaining.
+fn builder_parse_case_insensitive(_vm: &mut Vm, args: &[JValue]) -> R {
+    // Case-insensitive parsing is a no-op in this simplified implementation.
+    // Returns `this` for chaining.
+    Ok(args[0])
+}
+
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Ljava/time/format/DateTimeFormatterBuilder;",
@@ -71,6 +79,13 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "(Ljava/time/temporal/TemporalField;J)Ljava/time/format/DateTimeFormatterBuilder;",
         true,
         builder_parse_defaulting
+    ),
+    ne!(
+        "Ljava/time/format/DateTimeFormatterBuilder;",
+        "parseCaseInsensitive",
+        "()Ljava/time/format/DateTimeFormatterBuilder;",
+        true,
+        builder_parse_case_insensitive
     ),
     ne!(
         "Ljava/time/format/DateTimeFormatterBuilder;",
