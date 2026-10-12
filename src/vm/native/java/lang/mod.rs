@@ -32,10 +32,6 @@ pub(crate) use integer::*;
 pub(crate) use string::*;
 pub(crate) use throwable::*;
 
-pub(crate) use charsequence::CHARSEQUENCE_TABLE;
-pub(crate) use classvalue::CLASSVALUE_TABLE;
-pub(crate) use iterable::ITERABLE_TABLE;
-
 /// All java.lang native tables, grouped for `register`.
 pub(crate) const LANG_TABLE: &[&[NativeEntry]] = &[
     object::TABLE,
@@ -59,7 +55,7 @@ pub(crate) const LANG_TABLE: &[&[NativeEntry]] = &[
     float::TABLE,
     double::TABLE,
     soft_reference::TABLE,
-    CHARSEQUENCE_TABLE,
-    ITERABLE_TABLE,
-    CLASSVALUE_TABLE,
+    charsequence::CHARSEQUENCE_TABLE,
+    iterable::ITERABLE_TABLE,
+    classvalue::CLASSVALUE_TABLE,
 ];
