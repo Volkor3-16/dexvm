@@ -3419,7 +3419,19 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lokhttp3/MultipartBody;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [
+            sdef!(
+                "FORM",
+                "Lokhttp3/MediaType;",
+                ShimValue::Lazy(native::lazy_multipart_form_lazy)
+            ),
+            sdef!(
+                "STRICT_FORM",
+                "Lokhttp3/MediaType;",
+                ShimValue::Lazy(native::lazy_multipart_strict_form_lazy)
+            ),
+        ]
     ),
     #[cfg(feature = "okhttp")]
     shim!(

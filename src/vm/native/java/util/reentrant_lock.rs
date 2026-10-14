@@ -82,6 +82,12 @@ pub(crate) fn rw_try_lock(_vm: &mut Vm, _args: &[JValue]) -> R {
     Ok(JValue::Int(1))
 }
 
+pub(crate) fn rw_hold_zero(_vm: &mut Vm, _args: &[JValue]) -> R {
+    // A view is handed out per call and never queues a waiter, so no thread
+    // holds a read or write count in this VM.
+    Ok(JValue::Int(0))
+}
+
 /// Native methods for Ljava/util/concurrent/locks/ReentrantLock;
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
@@ -182,6 +188,20 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "(JLjava/util/concurrent/TimeUnit;)Z",
         true,
         rw_try_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "getReadHoldCount",
+        "()I",
+        true,
+        rw_hold_zero
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "getWriteHoldCount",
+        "()I",
+        true,
+        rw_hold_zero
     ),
     ne!(
         "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",

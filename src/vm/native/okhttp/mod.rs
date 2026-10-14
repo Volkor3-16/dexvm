@@ -966,6 +966,27 @@ fn multipart_boundary(vm: &mut Vm) -> String {
     format!("----DexVmMultipart{n:016x}")
 }
 
+/// `MultipartBody.FORM` and `MultipartBody.STRICT_FORM` are okhttp3's static
+/// `MediaType` constants. Extension bytecode reads them with `sget-object`, so
+/// they are fields on the class rather than methods.
+pub(crate) fn lazy_multipart_form_lazy(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lokhttp3/MediaType;",
+        Native::Str("multipart/form-data".to_string()),
+    )
+    .unwrap_or(JValue::Null)
+}
+
+pub(crate) fn lazy_multipart_strict_form_lazy(vm: &mut Vm) -> JValue {
+    alloc(
+        vm,
+        "Lokhttp3/MediaType;",
+        Native::Str("application/x-www-form-urlencoded".to_string()),
+    )
+    .unwrap_or(JValue::Null)
+}
+
 fn multipart_given_or_new_boundary(vm: &mut Vm, args: &[JValue]) -> String {
     match args.get(1) {
         Some(v) if !v.is_null() => jstr(vm, *v).unwrap_or_default(),
@@ -2136,6 +2157,16 @@ pub(crate) fn media_type_type(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(new_str(vm, &t))
 }
 
+/// `MediaType.mediaType` is the full type string (`multipart/form-data`), the
+/// property okhttp3 declares next to `type` and `subtype`.
+pub(crate) fn media_type_media_type(vm: &mut Vm, args: &[JValue]) -> R {
+    let s = match payload(vm, args[0]) {
+        Some(Native::Str(s)) => s.clone(),
+        _ => return Err(npe(vm)),
+    };
+    Ok(new_str(vm, &s))
+}
+
 pub(crate) fn media_type_subtype(vm: &mut Vm, args: &[JValue]) -> R {
     let s = match payload(vm, args[0]) {
         Some(Native::Str(s)) => s.clone(),
@@ -3072,6 +3103,7 @@ pub(crate) const OKHTTP_TABLE: &[NativeEntry] = &[
     ne!("Lokhttp3/MediaType$Companion;", "parse", "(Ljava/lang/String;)Lokhttp3/MediaType;", true, media_type_companion_parse),
     ne!("Lokhttp3/MediaType;", "type", "()Ljava/lang/String;", true, media_type_type),
     ne!("Lokhttp3/MediaType;", "subtype", "()Ljava/lang/String;", true, media_type_subtype),
+    ne!("Lokhttp3/MediaType;", "mediaType", "()Ljava/lang/String;", true, media_type_media_type),
     ne!("Lokhttp3/Request;", "headers", "()Lokhttp3/Headers;", true, request_headers),
     ne!("Lokhttp3/Request;", "body", "()Lokhttp3/RequestBody;", true, request_body_get),
     ne!("Lokhttp3/Request;", "tag", "()Ljava/lang/Object;", true, request_tag),
