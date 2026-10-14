@@ -1744,6 +1744,49 @@ fn json_builder_set(_vm: &mut Vm, _args: &[JValue]) -> R {
     Ok(JValue::Null)
 }
 
+/// A `Json` the shim creates is the only `Json` those sources will ever hold:
+/// `JsonKt.Json$default` is a top-level call, so its `json` parameter arrives
+/// null and the shim has to materialize the object itself. A `Json` whose
+/// `module` / `classDiscriminatorMode` fields are unset makes the extension's
+/// own null checks fire — `module must not be null`, `classDiscriminatorMode
+/// must not be null` — before any byte of data is parsed. Give it the platform
+/// defaults instead of an empty shell.
+fn ensure_json_defaults(vm: &mut Vm, json: JValue) {
+    let JValue::Obj(obj) = json else { return };
+    if vm
+        .instance_field(obj, "module")
+        .is_none_or(|v| v.is_null_ref())
+    {
+        let module = alloc(
+            vm,
+            "Lkotlinx/serialization/modules/SerializersModule;",
+            Native::SerializersModule { polys: Vec::new() },
+        );
+        if let Ok(module) = module {
+            // Best effort on the dex-declared field, and always on the shim's
+            // own record of the object: the bundled kotlinx `Json` in a modern
+            // extension reads the field, an older one never declares it.
+            vm.instance_field_set(obj, "module", module);
+            if !matches!(payload(vm, json), Some(Native::JsonWithModule { .. })) {
+                vm.arena.objects[obj as usize].native = Some(Native::JsonWithModule { module });
+            }
+        }
+    }
+    if vm
+        .instance_field(obj, "classDiscriminatorMode")
+        .is_none_or(|v| v.is_null_ref())
+    {
+        let mode = alloc(
+            vm,
+            "Lkotlinx/serialization/json/JsonClassDiscriminatorMode;",
+            Native::Opaque,
+        );
+        if let Ok(mode) = mode {
+            vm.instance_field_set(obj, "classDiscriminatorMode", mode);
+        }
+    }
+}
+
 /// `JsonKt.Json$default(json, block, mask, marker)` — runs the builder block
 /// over a fresh `JsonBuilder` and returns the original Json.
 fn json_builder_default(vm: &mut Vm, args: &[JValue]) -> R {
@@ -1771,6 +1814,7 @@ fn json_builder_default(vm: &mut Vm, args: &[JValue]) -> R {
     } else {
         args[0]
     };
+    ensure_json_defaults(vm, this);
     if let (Some(module), JValue::Obj(o)) = (module, this) {
         vm.arena.objects[o as usize].native = Some(Native::JsonWithModule { module });
     }
@@ -2941,6 +2985,33 @@ mod tests {
     use super::*;
     use crate::Context;
 
+    #[test]
+    fn json_default_overload_materializes_json_fields() {
+        let data = std::fs::read("fixtures/classes.dex").unwrap();
+        let mut ctx = Context::new(&data).unwrap();
+        let vm = ctx.vm();
+        // `Json { }` with no receiver: the shim owns the object it returns.
+        let json = json_builder_default(
+            vm,
+            &[JValue::Null, JValue::Null, JValue::Int(3), JValue::Null],
+        )
+        .expect("Json$default");
+        let JValue::Obj(obj) = json else {
+            panic!("Json$default must return a Json, got {json:?}");
+        };
+        // The shim's own record of the Json now carries a module, so a decode
+        // that asks for one gets it: a null one is what the extension's own
+        // checkNotNull reports as `module must not be null`.
+        assert!(
+            json_module_of(vm, json).is_some(),
+            "a shim-built Json must have a module"
+        );
+        assert!(matches!(
+            payload(vm, json),
+            Some(Native::JsonWithModule { .. })
+        ));
+        let _ = obj;
+    }
     #[test]
     fn json_tree_accessors_parse_and_navigate() {
         let data = std::fs::read("fixtures/classes.dex").unwrap();
