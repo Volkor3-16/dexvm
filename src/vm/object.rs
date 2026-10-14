@@ -826,6 +826,15 @@ pub enum IterKind {
         set: u32,
         idx: usize,
     },
+    /// Kotlin progression iterator (`IntRange`, `IntProgression`, `CharRange`):
+    /// yields `first`, `first + step`, ... while the value is within `last`
+    /// (inclusive), which is how `kotlin.ranges.ProgressionIterator` behaves.
+    Range {
+        first: i32,
+        last: i32,
+        step: i32,
+        idx: usize,
+    },
     #[cfg(feature = "jsoup")]
     Jsoup {
         doc: JsoupDocRef,
@@ -949,6 +958,7 @@ impl Native {
                 | IterKind::MapKeys { map, .. }
                 | IterKind::MapValues { map, .. } => out.push(*map),
                 IterKind::Set { set, .. } => out.push(*set),
+                IterKind::Range { .. } => {}
                 #[cfg(feature = "jsoup")]
                 IterKind::Jsoup { .. } => {}
             },

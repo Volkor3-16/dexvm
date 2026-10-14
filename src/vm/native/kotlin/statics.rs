@@ -32,3 +32,11 @@ pub(crate) fn global_scope(vm: &mut Vm) -> JValue {
 pub(crate) fn result_companion(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lkotlin/Result$Companion;")
 }
+/// `kotlin.random.Random.Default` (the `companion object Default : Random()`).
+pub(crate) fn random_default(vm: &mut Vm) -> JValue {
+    opaque_inst(vm, "Lkotlin/random/Random$Default;")
+}
+/// `kotlin.time.Instant.Companion`.
+pub(crate) fn kotlin_instant_companion(vm: &mut Vm) -> JValue {
+    opaque_inst(vm, "Lkotlin/time/Instant$Companion;")
+}

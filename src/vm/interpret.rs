@@ -877,9 +877,7 @@ impl Vm {
             }
             Insn::NewInstance(d, type_idx) => {
                 let class_id = self.ensure_class_by_type(f.dex, *type_idx)?;
-                let fields = self.classes[class_id as usize].field_offsets.len();
-                f.regs[*d as usize] =
-                    JValue::Obj(self.arena.alloc(class_id, vec![JValue::Null; fields], None));
+                f.regs[*d as usize] = JValue::Obj(self.alloc_object(class_id, None));
                 Flow::Next(0)
             }
             Insn::NewArray(d, size_reg, type_idx) => {
@@ -1114,6 +1112,17 @@ impl Vm {
                         self.class_desc_str(oc)
                     ))
                 })?;
+                if (off as usize) >= self.arena.objects[o as usize].fields.len() {
+                    debug!(
+                        "INV field layout mismatch: cls={} name={} ty={} off={} nfields={}",
+                        self.class_desc_str(oc),
+                        self.str_of(fr.name),
+                        self.str_of(fr.ty),
+                        off,
+                        self.arena.objects[o as usize].fields.len()
+                    );
+                    return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
+                }
                 let fv = self.arena.objects[o as usize].fields[off as usize];
                 let fcls = self.class_desc_str(oc);
                 if fcls == "g1" || fcls == "c1" {

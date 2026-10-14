@@ -1962,6 +1962,9 @@ pub(crate) const KOTLIN_TABLE: &[NativeEntry] = &[
     ne!("Lkotlin/text/MatchResult$Destructured;", "getMatch", "()Lkotlin/text/MatchResult;", true, match_result_destructured_get_match),
     ne!("Lkotlin/collections/IndexedValue;", "getIndex", "()I", true, indexed_value_get_index),
     ne!("Lkotlin/collections/IndexedValue;", "getValue", "()Ljava/lang/Object;", true, indexed_value_get_value),
+    // Destructuring (`for ((i, v) in x.withIndex())`) compiles to component1/component2.
+    ne!("Lkotlin/collections/IndexedValue;", "component1", "()I", true, indexed_value_get_index),
+    ne!("Lkotlin/collections/IndexedValue;", "component2", "()Ljava/lang/Object;", true, indexed_value_get_value),
     ne!("Lkotlin/text/UStringsKt;", "toUInt", "(Ljava/lang/String;)I", false, ustrings_to_uint),
     ne!("Lkotlin/text/UStringsKt;", "toString-LxnNnR4", "(BI)Ljava/lang/String;", false, ustrings_to_string_radix),
     ne!("Lkotlin/text/StringsKt;", "random", "(Ljava/lang/CharSequence;Lkotlin/random/Random;)C", false, stringskt_random),

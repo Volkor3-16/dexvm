@@ -1468,6 +1468,46 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
                 "Ljava/util/Locale;",
                 ShimValue::Lazy(native::lazy_locale_italy)
             ),
+            sdef!(
+                "FRENCH",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_french)
+            ),
+            sdef!(
+                "JAPANESE",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_japanese)
+            ),
+            sdef!(
+                "CHINESE",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_chinese)
+            ),
+            sdef!(
+                "SIMPLIFIED_CHINESE",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_simplified_chinese)
+            ),
+            sdef!(
+                "TRADITIONAL_CHINESE",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_traditional_chinese)
+            ),
+            sdef!(
+                "KOREAN",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_korean)
+            ),
+            sdef!(
+                "GERMAN",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_german)
+            ),
+            sdef!(
+                "ITALIAN",
+                "Ljava/util/Locale;",
+                ShimValue::Lazy(native::lazy_locale_italian)
+            ),
         ]
     ),
     shim!(
@@ -2486,7 +2526,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlin/random/Random$Default;",
         Some("Lkotlin/random/Random;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "Default",
+            "Lkotlin/random/Random;",
+            ShimValue::Lazy(native::lazy_random_default)
+        ),]
     ),
     #[cfg(feature = "kotlin")]
     shim!(
@@ -2678,7 +2723,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lkotlin/time/Instant$Companion;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "Companion",
+            "Lkotlin/time/Instant$Companion;",
+            ShimValue::Lazy(native::lazy_kotlin_instant_companion)
+        ),]
     ),
     #[cfg(feature = "kotlin")]
     shim!("Lkotlin/time/Instant;", Some("Ljava/lang/Object;"), &[], 0),
@@ -3173,7 +3223,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Lokio/ByteString$Companion;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "Companion",
+            "Lokio/ByteString$Companion;",
+            ShimValue::Lazy(native::lazy_byte_string_companion)
+        ),]
     ),
     #[cfg(feature = "okhttp")]
     shim!(
@@ -3281,7 +3336,12 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         "Leu/kanade/tachiyomi/AppInfo;",
         Some("Ljava/lang/Object;"),
         &[],
-        0
+        0,
+        [sdef!(
+            "INSTANCE",
+            "Leu/kanade/tachiyomi/AppInfo;",
+            ShimValue::Lazy(native::lazy_app_info_instance)
+        ),]
     ),
     #[cfg(feature = "tachiyomi")]
     shim!(
@@ -3697,6 +3757,159 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
                 "YEARS",
                 "Ljava/time/temporal/ChronoUnit;",
                 ShimValue::Lazy(native::lazy_chrono_unit_years)
+            ),
+        ]
+    ),
+    // ChronoField constants are read with `sget-object`, so they must exist as
+    // static fields (the method form in chrono_field.rs covers `ChronoField.YEAR()`).
+    shim!(
+        "Ljava/time/temporal/ChronoField;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            sdef!(
+                "ERA",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_era)
+            ),
+            sdef!(
+                "YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_year)
+            ),
+            sdef!(
+                "YEAR_OF_ERA",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_year_of_era)
+            ),
+            sdef!(
+                "MONTH_OF_YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_month_of_year)
+            ),
+            sdef!(
+                "DAY_OF_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_day_of_month)
+            ),
+            sdef!(
+                "DAY_OF_YEAR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_day_of_year)
+            ),
+            sdef!(
+                "DAY_OF_WEEK",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_day_of_week)
+            ),
+            sdef!(
+                "DAY_OF_WEEK_IN_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_day_of_week_in_month)
+            ),
+            sdef!(
+                "AM_PM_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_am_pm_of_day)
+            ),
+            sdef!(
+                "CLOCK_HOUR_OF_AMPM",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_clock_hour_of_am_pm)
+            ),
+            sdef!(
+                "HOUR_OF_AMPM",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_hour_of_am_pm)
+            ),
+            sdef!(
+                "HOUR_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_hour_of_day)
+            ),
+            sdef!(
+                "MINUTE_OF_HOUR",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_minute_of_hour)
+            ),
+            sdef!(
+                "SECOND_OF_MINUTE",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_second_of_minute)
+            ),
+            sdef!(
+                "NANO_OF_SECOND",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_nano_of_second)
+            ),
+            sdef!(
+                "NANO_OF_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_nano_of_day)
+            ),
+            sdef!(
+                "EPOCH_DAY",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_epoch_day)
+            ),
+            sdef!(
+                "PROLEPTIC_MONTH",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_proleptic_month)
+            ),
+            sdef!(
+                "INSTANT_SECONDS",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_instant_seconds)
+            ),
+            sdef!(
+                "OFFSET_SECONDS",
+                "Ljava/time/temporal/ChronoField;",
+                ShimValue::Lazy(native::lazy_chrono_field_offset_seconds)
+            ),
+        ]
+    ),
+    shim!(
+        "Ljava/time/format/DateTimeFormatter;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            sdef!(
+                "ISO_INSTANT",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_iso_instant)
+            ),
+            sdef!(
+                "ISO_DATE_TIME",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_iso_date_time)
+            ),
+            sdef!(
+                "ISO_LOCAL_DATE_TIME",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_iso_local_date_time)
+            ),
+            sdef!(
+                "ISO_LOCAL_DATE",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_iso_local_date)
+            ),
+            sdef!(
+                "ISO_OFFSET_DATE_TIME",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_iso_offset_date_time)
+            ),
+            sdef!(
+                "ISO_DATE",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_iso_date)
+            ),
+            sdef!(
+                "BASIC_ISO_DATE",
+                "Ljava/time/format/DateTimeFormatter;",
+                ShimValue::Lazy(native::lazy_dtf_basic_iso_date)
             ),
         ]
     ),

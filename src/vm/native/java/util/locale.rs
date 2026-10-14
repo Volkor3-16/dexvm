@@ -4,7 +4,7 @@ pub fn lazy_opaque_locale(vm: &mut Vm) -> JValue {
     let Ok(class) = vm.ensure_class_by_desc("Ljava/util/Locale;") else {
         return JValue::Null;
     };
-    JValue::Obj(vm.arena.alloc(class, Vec::new(), Some(Native::Opaque)))
+    JValue::Obj(vm.alloc_object(class, Some(Native::Opaque)))
 }
 
 // Locale constants (e.g. Locale.US) used by `String.lowercase(Locale)` etc.
@@ -30,6 +30,16 @@ locale_const!(lazy_locale_china, "zh-CN");
 locale_const!(lazy_locale_france, "fr-FR");
 locale_const!(lazy_locale_germany, "de-DE");
 locale_const!(lazy_locale_italy, "it-IT");
+// Language-only constants (`Locale.FRENCH`, `Locale.JAPANESE`, ...), which
+// extensions use for title/localisation filtering.
+locale_const!(lazy_locale_french, "fr");
+locale_const!(lazy_locale_german, "de");
+locale_const!(lazy_locale_italian, "it");
+locale_const!(lazy_locale_japanese, "ja");
+locale_const!(lazy_locale_korean, "ko");
+locale_const!(lazy_locale_chinese, "zh");
+locale_const!(lazy_locale_simplified_chinese, "zh-CN");
+locale_const!(lazy_locale_traditional_chinese, "zh-TW");
 
 // java.util.Locale host shims.
 

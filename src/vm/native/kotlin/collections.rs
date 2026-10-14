@@ -1411,6 +1411,92 @@ pub(super) fn arraydeque_remove_last(vm: &mut Vm, args: &[JValue]) -> R {
     }
 }
 
+pub(super) fn arraydeque_size(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::ArrayDeque(items)) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    Ok(JValue::Int(items.len() as i32))
+}
+
+pub(super) fn arraydeque_remove_last_or_null(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::ArrayDeque(items)) = payload_mut(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    Ok(items.pop().unwrap_or(JValue::Null))
+}
+
+pub(super) fn arraydeque_remove_first_or_null(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::ArrayDeque(items)) = payload_mut(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    if items.is_empty() {
+        return Ok(JValue::Null);
+    }
+    Ok(items.remove(0))
+}
+
+/// `Iterable.toBooleanArray()`: collect and unbox every element.
+pub(super) fn collectionskt_to_boolean_array(vm: &mut Vm, args: &[JValue]) -> R {
+    let bools: Vec<bool> = coll_elems(vm, args[0])?
+        .into_iter()
+        .map(|v| bool_of(vm, v))
+        .collect();
+    let len = bools.len();
+    alloc_arr(vm, "Z", len, move || ArrayData::Bool(bools))
+}
+
+/// `Map.withDefault(fn)`: Kotlin returns a read-only view that resolves
+/// missing keys through `fn`. The receiver stays the backing map, which is
+/// what extension code keeps using for writes.
+pub(super) fn mapskt_with_default(_vm: &mut Vm, args: &[JValue]) -> R {
+    Ok(args[0])
+}
+
+/// `ArraysKt.last(array)` / `ArraysKt.indexOf(array, element)`.
+pub(super) fn arrayskt_last_obj(vm: &mut Vm, args: &[JValue]) -> R {
+    match payload(vm, args[0]) {
+        Some(Native::Array(data)) => {
+            let len = data.len();
+            if len == 0 {
+                Err(no_such_elem(vm))
+            } else {
+                Ok(data.get(len - 1))
+            }
+        }
+        _ => Err(npe(vm)),
+    }
+}
+
+pub(super) fn arrayskt_index_of_obj(vm: &mut Vm, args: &[JValue]) -> R {
+    let items: Vec<JValue> = match payload(vm, args[0]) {
+        Some(Native::Array(data)) => (0..data.len()).map(|i| data.get(i)).collect(),
+        _ => return Err(npe(vm)),
+    };
+    for (i, item) in items.iter().copied().enumerate() {
+        if java_equals(vm, item, args[1])? {
+            return Ok(JValue::Int(i as i32));
+        }
+    }
+    Ok(JValue::Int(-1))
+}
+
+/// `ArraysKt.withIndex(Array<T>)` - List of `IndexedValue(index, value)`.
+pub(super) fn arrayskt_with_index(vm: &mut Vm, args: &[JValue]) -> R {
+    let items: Vec<JValue> = match payload(vm, args[0]) {
+        Some(Native::Array(data)) => (0..data.len()).map(|i| data.get(i)).collect(),
+        _ => return Err(npe(vm)),
+    };
+    let mut out = Vec::with_capacity(items.len());
+    for (index, value) in items.into_iter().enumerate() {
+        out.push(alloc(
+            vm,
+            "Lkotlin/collections/IndexedValue;",
+            Native::Pair(JValue::Int(index as i32), value),
+        )?);
+    }
+    list_alloc(vm, out)
+}
+
 pub(super) fn arraydeque_clear(vm: &mut Vm, args: &[JValue]) -> R {
     let Some(Native::ArrayDeque(items)) = payload_mut(vm, args[0]) else {
         return Err(npe(vm));
@@ -1641,4 +1727,12 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlin/collections/ArrayDeque;", "removeLast", "()Ljava/lang/Object;", true, arraydeque_remove_last),
     ne!("Lkotlin/collections/ArrayDeque;", "clear", "()V", true, arraydeque_clear),
     ne!("Lkotlin/collections/ArrayDeque;", "lastOrNull", "()Ljava/lang/Object;", true, arraydeque_last_or_null),
+    ne!("Lkotlin/collections/ArrayDeque;", "size", "()I", true, arraydeque_size),
+    ne!("Lkotlin/collections/ArrayDeque;", "removeLastOrNull", "()Ljava/lang/Object;", true, arraydeque_remove_last_or_null),
+    ne!("Lkotlin/collections/ArrayDeque;", "removeFirstOrNull", "()Ljava/lang/Object;", true, arraydeque_remove_first_or_null),
+    ne!("Lkotlin/collections/ArraysKt;", "last", "([Ljava/lang/Object;)Ljava/lang/Object;", false, arrayskt_last_obj),
+    ne!("Lkotlin/collections/ArraysKt;", "indexOf", "([Ljava/lang/Object;Ljava/lang/Object;)I", false, arrayskt_index_of_obj),
+    ne!("Lkotlin/collections/ArraysKt;", "withIndex", "([Ljava/lang/Object;)Ljava/lang/Iterable;", false, arrayskt_with_index),
+    ne!("Lkotlin/collections/CollectionsKt;", "toBooleanArray", "(Ljava/util/Collection;)[Z", false, collectionskt_to_boolean_array),
+    ne!("Lkotlin/collections/MapsKt;", "withDefault", "(Ljava/util/Map;Lkotlin/jvm/functions/Function1;)Ljava/util/Map;", false, mapskt_with_default),
 ];

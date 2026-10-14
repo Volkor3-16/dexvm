@@ -1567,11 +1567,7 @@ impl Vm {
     /// other host objects from tests and embedders.
     pub fn alloc_native(&mut self, desc: &str, native: object::Native) -> Result<JValue, JvmError> {
         let class = self.ensure_class_by_desc(desc)?;
-        Ok(JValue::Obj(self.arena.alloc(
-            class,
-            Vec::new(),
-            Some(native),
-        )))
+        Ok(JValue::Obj(self.alloc_object(class, Some(native))))
     }
 
     /// Reads the instance field `name` of an in-dex object (host shim
@@ -1680,6 +1676,22 @@ impl Vm {
         Ok(self.arena.alloc(class_id, fields, None))
     }
 
+    /// Allocate an object of `class_id` with its declared instance-field slots
+    /// sized out, optionally attaching a host payload. Host-backed objects of
+    /// dex-defined classes (shim `Native::Opaque`, throwables, ...) must carry
+    /// the same slots `new-instance` would, otherwise `iget`/`iput` on them
+    /// resolve to offsets past the end of the field vector.
+    pub fn alloc_object(&mut self, class_id: u32, native: Option<object::Native>) -> u32 {
+        let fields: Vec<JValue> = {
+            let c = &self.classes[class_id as usize];
+            c.instance_fields
+                .iter()
+                .map(|&(_, ty, _)| default_of(self.str_of(ty)))
+                .collect()
+        };
+        self.arena.alloc(class_id, fields, native)
+    }
+
     pub fn alloc_string(&mut self, s: &str) -> JValue {
         if let Some(&id) = self.runtime_strings.get(s) {
             return JValue::Obj(id);
@@ -1740,9 +1752,8 @@ impl Vm {
 
     pub fn throwable_of(&mut self, class_desc: &str, message: impl Into<String>) -> u32 {
         let class = self.ensure_class_by_desc(class_desc).unwrap_or(0);
-        self.arena.alloc(
+        self.alloc_object(
             class,
-            Vec::new(),
             Some(Native::Throwable {
                 message: Some(message.into()),
                 cause: JValue::Null,

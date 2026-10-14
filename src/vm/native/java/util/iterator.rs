@@ -11,7 +11,8 @@ pub(crate) fn iter_has_next(vm: &mut Vm, args: &[JValue]) -> R {
         | IterKind::Set { idx, .. }
         | IterKind::MapEntries { idx, .. }
         | IterKind::MapKeys { idx, .. }
-        | IterKind::MapValues { idx, .. } => *idx,
+        | IterKind::MapValues { idx, .. }
+        | IterKind::Range { idx, .. } => *idx,
         #[cfg(feature = "jsoup")]
         IterKind::Jsoup { idx, .. } => *idx,
     };
@@ -32,6 +33,9 @@ pub(crate) fn iter_has_next(vm: &mut Vm, args: &[JValue]) -> R {
             Some(Native::Map(entries)) => entries.len(),
             _ => return Err(npe(vm)),
         },
+        IterKind::Range {
+            first, last, step, ..
+        } => progression_len(*first, *last, *step),
         #[cfg(feature = "jsoup")]
         IterKind::Jsoup { ids, .. } => ids.len(),
     };
@@ -78,6 +82,20 @@ pub(crate) fn iter_next(vm: &mut Vm, args: &[JValue]) -> R {
                 .ok_or_else(|| no_such_elem(vm)),
             _ => Err(npe(vm)),
         },
+        IterKind::Range {
+            first,
+            last,
+            step,
+            idx,
+        } => {
+            if *idx >= progression_len(*first, *last, *step) {
+                Err(no_such_elem(vm))
+            } else {
+                Ok(JValue::Int(
+                    first.wrapping_add((*idx as i32).wrapping_mul(*step)),
+                ))
+            }
+        }
         #[cfg(feature = "jsoup")]
         IterKind::Jsoup { doc, ids, idx } => match ids.get(*idx) {
             Some(id) => alloc(
@@ -96,7 +114,8 @@ pub(crate) fn iter_next(vm: &mut Vm, args: &[JValue]) -> R {
         | IterKind::Set { idx, .. }
         | IterKind::MapEntries { idx, .. }
         | IterKind::MapKeys { idx, .. }
-        | IterKind::MapValues { idx, .. } => *idx,
+        | IterKind::MapValues { idx, .. }
+        | IterKind::Range { idx, .. } => *idx,
         #[cfg(feature = "jsoup")]
         IterKind::Jsoup { idx, .. } => *idx,
     } + 1;
@@ -109,13 +128,36 @@ pub(crate) fn iter_next(vm: &mut Vm, args: &[JValue]) -> R {
             | IterKind::Set { idx: i, .. }
             | IterKind::MapEntries { idx: i, .. }
             | IterKind::MapKeys { idx: i, .. }
-            | IterKind::MapValues { idx: i, .. } => *i = next_idx,
+            | IterKind::MapValues { idx: i, .. }
+            | IterKind::Range { idx: i, .. } => *i = next_idx,
             #[cfg(feature = "jsoup")]
             IterKind::Jsoup { idx: i, .. } => *i = next_idx,
         },
         _ => return Err(npe(vm)),
     }
     Ok(item)
+}
+
+/// Number of values a Kotlin progression yields: `first`, `first + step`, ...
+/// while still within `last` (inclusive). Mirrors
+/// `kotlin.internal.getProgressionLastElement` plus the element count.
+pub(crate) fn progression_len(first: i32, last: i32, step: i32) -> usize {
+    let (first, last, step) = (i64::from(first), i64::from(last), i64::from(step));
+    if step > 0 {
+        if first > last {
+            0
+        } else {
+            ((last - first) / step + 1) as usize
+        }
+    } else if step < 0 {
+        if first < last {
+            0
+        } else {
+            ((first - last) / -step + 1) as usize
+        }
+    } else {
+        0
+    }
 }
 
 pub(crate) fn iter_remove(_vm: &mut Vm, _args: &[JValue]) -> R {

@@ -51,7 +51,7 @@ pub fn lazy_print_stream(vm: &mut Vm) -> JValue {
     let Ok(class) = vm.ensure_class_by_desc("Ljava/io/PrintStream;") else {
         return JValue::Null;
     };
-    JValue::Obj(vm.arena.alloc(class, Vec::new(), Some(Native::PrintStream)))
+    JValue::Obj(vm.alloc_object(class, Some(Native::PrintStream)))
 }
 
 // java.io.PrintStream.<init> (objects constructed by dex)

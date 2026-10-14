@@ -137,7 +137,7 @@ pub(crate) fn opaque_inst(vm: &mut Vm, desc: &str) -> JValue {
     let Ok(class) = vm.ensure_class_by_desc(desc) else {
         return JValue::Null;
     };
-    JValue::Obj(vm.arena.alloc(class, Vec::new(), Some(Native::Opaque)))
+    JValue::Obj(vm.alloc_object(class, Some(Native::Opaque)))
 }
 
 pub(crate) const TABLE: &[NativeEntry] = &[

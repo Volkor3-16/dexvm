@@ -113,6 +113,9 @@ pub(crate) fn coroutines_job_cancel_default(_vm: &mut Vm, _args: &[JValue]) -> R
 pub(crate) fn coroutines_is_active(_vm: &mut Vm, _args: &[JValue]) -> R {
     Ok(JValue::Int(1))
 }
+pub(crate) fn coroutines_is_cancelled(_vm: &mut Vm, _args: &[JValue]) -> R {
+    Ok(JValue::Int(0))
+}
 pub(crate) fn coroutines_get_immediate(_vm: &mut Vm, args: &[JValue]) -> R {
     Ok(args[0])
 }
@@ -195,9 +198,21 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ne!("Lkotlinx/coroutines/AwaitKt;", "awaitAll", "(Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, deferred_await_all),
     ne!("Lkotlinx/coroutines/sync/MutexKt;", "Mutex$default", "(ZILjava/lang/Object;)Lkotlinx/coroutines/sync/Mutex;", false, mutex_default),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, mutex_lock),
+    // kotlinx.coroutines >= 1.13 gives Mutex an owner-aware API: every member
+    // takes an `owner: Any?`, so the descriptor gains a leading Object parameter
+    // and `suspend fun lock()` becomes `lock(Object, Continuation)`. Extensions
+    // compiled against either generation must resolve.
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "lock", "(Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", true, mutex_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "tryLock", "()Z", true, mutex_try_lock),
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "tryLock", "(Ljava/lang/Object;)Z", true, mutex_try_lock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "unlock", "()V", true, mutex_unlock),
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "unlock", "(Ljava/lang/Object;)V", true, mutex_unlock),
     ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "()Z", true, mutex_is_locked),
+    ne!("Lkotlinx/coroutines/sync/Mutex;", "isLocked", "(Ljava/lang/Object;)Z", true, mutex_is_locked),
+    ne!("Lkotlinx/coroutines/Job;", "isActive", "()Z", true, coroutines_is_active),
+    ne!("Lkotlinx/coroutines/Job;", "isCancelled", "()Z", true, coroutines_is_cancelled),
+    ne!("Lkotlinx/coroutines/Job;", "cancel", "()V", true, coroutines_job_cancel_default),
+    ne!("Lkotlinx/coroutines/Job;", "cancel", "(Ljava/lang/Throwable;)V", true, coroutines_job_cancel_default),
     ne!("Lkotlinx/coroutines/SupervisorKt;", "SupervisorJob$default", "(Lkotlinx/coroutines/Job;ILjava/lang/Object;)Lkotlinx/coroutines/CompletableJob;", false, coroutines_supervisor_job_default),
     ne!("Lkotlinx/coroutines/SupervisorKt;", "supervisorScope", "(Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", false, coroutines_supervisor_scope),
     ne!("Lkotlinx/coroutines/Job;", "cancel$default", "(Lkotlinx/coroutines/Job;Ljava/util/concurrent/CancellationException;ILjava/lang/Object;)V", false, coroutines_job_cancel_default),

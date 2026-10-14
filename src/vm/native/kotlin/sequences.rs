@@ -323,6 +323,44 @@ fn sequence_generate(vm: &mut Vm, args: &[JValue]) -> R {
     seq_alloc(vm, out)
 }
 
+/// `SequencesKt.sequence(generator)`: the generator is the suspend lambda
+/// behind `generateSequence`/`Sequence { ... }`. Drive it with successive
+/// indexes; a null result is its end-of-sequence signal.
+fn sequenceskt_sequence(vm: &mut Vm, args: &[JValue]) -> R {
+    let f = args[0];
+    let mut out = Vec::new();
+    for i in 0..CAP as i32 {
+        let v = inv_virt(
+            vm,
+            f,
+            "invoke",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            &[JValue::Int(i), JValue::Null],
+        )?;
+        if v.is_null_ref() {
+            break;
+        }
+        out.push(v);
+    }
+    seq_alloc(vm, out)
+}
+
+/// Sequences here are materialised as `Native::List`, so their iterator is a
+/// plain list iterator over the same object.
+fn sequence_iterator(vm: &mut Vm, args: &[JValue]) -> R {
+    let JValue::Obj(id) = args[0] else {
+        return Err(npe(vm));
+    };
+    if !matches!(payload(vm, args[0]), Some(Native::List(_))) {
+        return Err(npe(vm));
+    }
+    alloc(
+        vm,
+        "Ljava/util/Iterator;",
+        Native::Iter(IterKind::List { list: id, idx: 0 }),
+    )
+}
+
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Lkotlin/sequences/SequencesKt;",
@@ -540,5 +578,19 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "(Lkotlin/jvm/functions/Function0;)Lkotlin/sequences/Sequence;",
         false,
         sequence_generate
+    ),
+    ne!(
+        "Lkotlin/sequences/SequencesKt;",
+        "sequence",
+        "(Lkotlin/jvm/functions/Function2;)Lkotlin/sequences/Sequence;",
+        false,
+        sequenceskt_sequence
+    ),
+    ne!(
+        "Lkotlin/sequences/Sequence;",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        true,
+        sequence_iterator
     ),
 ];

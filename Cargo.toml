@@ -39,6 +39,18 @@ name = "dexvm"
 name = "dexcli"
 path = "src/bin/dexcli.rs"
 
+# The extension test harness drives the keiyoushi bridge, so it needs the full
+# host-shim feature set (it cannot build under `--no-default-features`).
+[[bin]]
+name = "exttest"
+path = "src/bin/exttest.rs"
+required-features = ["keiyoushi"]
+
+[[example]]
+name = "test_jsoup"
+path = "examples/test_jsoup.rs"
+required-features = ["keiyoushi"]
+
 [[test]]
 name = "keiyoushi_e2e"
 required-features = ["keiyoushi"]

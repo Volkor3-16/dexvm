@@ -316,6 +316,40 @@ fn char_iterator_next_char(vm: &mut Vm, args: &[JValue]) -> R {
     Ok(JValue::Int(v))
 }
 
+/// `IntRange`/`IntProgression.iterator()`: Kotlin lowers these to
+/// `ProgressionIterator`, which walks `first ..= last` by `step`.
+pub(super) fn progression_iterator(vm: &mut Vm, args: &[JValue]) -> R {
+    let (first, last, step) = progression_bounds(vm, args[0])?;
+    alloc(
+        vm,
+        "Ljava/util/Iterator;",
+        Native::Iter(IterKind::Range {
+            first,
+            last,
+            step,
+            idx: 0,
+        }),
+    )
+}
+
+/// `CharRange.iterator()`: same walk over the inclusive char bounds.
+pub(super) fn char_range_iterator(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::CharRange(first, last)) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    let (first, last) = (*first, *last);
+    alloc(
+        vm,
+        "Ljava/util/Iterator;",
+        Native::Iter(IterKind::Range {
+            first,
+            last,
+            step: 1,
+            idx: 0,
+        }),
+    )
+}
+
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Lkotlin/ranges/RangesKt;",
@@ -526,5 +560,26 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         "()C",
         true,
         char_iterator_next_char
+    ),
+    ne!(
+        "Lkotlin/ranges/IntProgression;",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        true,
+        progression_iterator
+    ),
+    ne!(
+        "Lkotlin/ranges/IntRange;",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        true,
+        progression_iterator
+    ),
+    ne!(
+        "Lkotlin/ranges/CharRange;",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        true,
+        char_range_iterator
     ),
 ];

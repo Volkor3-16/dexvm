@@ -10,6 +10,11 @@ use std::io::Write as _;
 
 // ---- okio.ByteString: an immutable byte sequence, backed by a plain byte array ----
 
+/// `ByteString.Companion` - the object holding `decodeBase64`/`encodeUtf8`.
+pub(crate) fn lazy_byte_string_companion(vm: &mut Vm) -> JValue {
+    opaque_inst(vm, "Lokio/ByteString$Companion;")
+}
+
 fn byte_string_alloc(vm: &mut Vm, bytes: Vec<u8>) -> R {
     let data: Vec<i8> = bytes.iter().map(|&b| b as i8).collect();
     alloc(

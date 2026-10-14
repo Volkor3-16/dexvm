@@ -704,7 +704,7 @@ pub(crate) fn new_str(vm: &mut Vm, s: &str) -> JValue {
 
 pub(crate) fn alloc(vm: &mut Vm, desc: &str, native: Native) -> Result<JValue, NatErr> {
     let class = vm.ensure_class_by_desc(desc).map_err(nat_fatal)?;
-    Ok(JValue::Obj(vm.arena.alloc(class, Vec::new(), Some(native))))
+    Ok(JValue::Obj(vm.alloc_object(class, Some(native))))
 }
 
 pub(crate) fn boxed(vm: &mut Vm, desc: &str, native: Native) -> Result<JValue, NatErr> {
