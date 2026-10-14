@@ -500,6 +500,96 @@ impl Vm {
         Err(JvmError::Resolution(format!("class not found: {desc}")))
     }
 
+    /// Descriptor of a loaded class def, for diagnostics.
+    fn class_def_desc(&self, dex_idx: u32, def_idx: usize) -> String {
+        let def = &self.dex_at(dex_idx).classes[def_idx];
+        self.dex_at(dex_idx)
+            .type_descriptor(def.class_idx)
+            .to_string()
+    }
+
+    /// Descriptors this class def *declares* it inherits: its superclass (when
+    /// it has one) and its interfaces. This is the edge set the class-loading
+    /// stack can walk, so it is what a cycle has to be matched against.
+    fn declared_super_descriptors(&self, dex_idx: u32, def_idx: usize) -> Vec<String> {
+        let dex = self.dex_at(dex_idx);
+        let def = &dex.classes[def_idx];
+        let mut out = Vec::with_capacity(def.interfaces.len() + 1);
+        if def.superclass_idx != u32::MAX {
+            out.push(dex.type_descriptor(def.superclass_idx).to_string());
+        }
+        for &t in &def.interfaces {
+            out.push(dex.type_descriptor(t).to_string());
+        }
+        out
+    }
+
+    /// Name the class-hierarchy cycle the re-entrancy guard caught: every link
+    /// of the loading chain with its dex index, class-def index, declared
+    /// `superclass_idx` and declared superclass/interface descriptors, closed
+    /// by the edge that re-entered the chain.
+    fn class_cycle_chain(&self, start: usize) -> String {
+        let mut chain = String::new();
+        for &(dx, di) in &self.loading[start..] {
+            let def = &self.dex_at(dx).classes[di];
+            let declared = self.declared_super_descriptors(dx, di);
+            chain.push_str(&format!(
+                "{} [dex {} class_def {} superclass_idx {} declares {}] -> ",
+                self.class_def_desc(dx, di),
+                dx,
+                di,
+                def.superclass_idx,
+                if declared.is_empty() {
+                    String::from("nothing")
+                } else {
+                    declared.join(", ")
+                }
+            ));
+        }
+        // The edge that closed the loop: the innermost class re-entered the
+        // class the chain started with.
+        chain.push_str(&self.class_def_desc(self.loading[start].0, self.loading[start].1));
+        chain
+    }
+
+    /// Classify the caught cycle. `bytecode cycle` when every link of the
+    /// loading chain is an edge the dex itself declares, so the bytecode really
+    /// does define a closed hierarchy. `resolver artifact` when some link is
+    /// not a declared edge — the chain was closed by class *resolution* (a
+    /// declared descriptor that resolves to a different class def, typically a
+    /// class duplicated across dex files), which is a resolver/type-table
+    /// problem rather than a property of the bytecode.
+    fn classify_class_cycle(&self, start: usize) -> (&'static str, String) {
+        let chain = &self.loading[start..];
+        for i in 0..chain.len() {
+            let (dx, di) = chain[i];
+            let (nx, ni) = chain[(i + 1) % chain.len()];
+            let entered = self.class_def_desc(nx, ni);
+            let declared = self.declared_super_descriptors(dx, di);
+            if !declared.contains(&entered) {
+                return (
+                    "resolver artifact",
+                    format!(
+                        "{} does not declare {} as superclass/interface",
+                        self.class_def_desc(dx, di),
+                        entered
+                    ),
+                );
+            }
+            if let Some((lx, li)) = self.class_location(&entered) {
+                if (lx, li) != (nx, ni) {
+                    return (
+                        "resolver artifact",
+                        format!(
+                            "{entered} resolves to class def {li} in dex {lx}, not the def {ni} in dex {nx} that declared the edge"
+                        ),
+                    );
+                }
+            }
+        }
+        ("bytecode cycle", String::new())
+    }
+
     fn load_dex_class(&mut self, dex_idx: u32, def_idx: usize) -> Result<u32, JvmError> {
         let def = self.dex_at(dex_idx).classes[def_idx].clone();
         if let Some(&c) = self.class_by_type.get(&(dex_idx, def.class_idx)) {
@@ -515,7 +605,19 @@ impl Vm {
             return Ok(c);
         }
         if self.loading.contains(&(dex_idx, def_idx)) {
-            return Err(JvmError::Resolution("cyclic class hierarchy".into()));
+            let start = self
+                .loading
+                .iter()
+                .position(|&p| p == (dex_idx, def_idx))
+                .unwrap_or(0);
+            let chain = self.class_cycle_chain(start);
+            let (kind, detail) = self.classify_class_cycle(start);
+            log::debug!("INV cyclic class hierarchy ({kind}): {chain} {detail}");
+            let mut message = format!("cyclic class hierarchy ({kind}): {chain}");
+            if !detail.is_empty() {
+                message.push_str(&format!(" — {detail}"));
+            }
+            return Err(JvmError::Resolution(message));
         }
         self.loading.push((dex_idx, def_idx));
 
