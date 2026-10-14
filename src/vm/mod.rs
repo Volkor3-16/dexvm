@@ -176,6 +176,22 @@ pub struct Vm {
     loading: Vec<(u32, usize)>,
 }
 
+/// Which kind of inheritance edge a dex declares.
+#[derive(Clone, Copy)]
+enum Edge {
+    Superclass,
+    Interface,
+}
+
+impl Edge {
+    fn name(self) -> &'static str {
+        match self {
+            Edge::Superclass => "superclass",
+            Edge::Interface => "interface",
+        }
+    }
+}
+
 impl Vm {
     pub fn new(dexes: Vec<DexFile>, out: Box<dyn Write>) -> Result<Vm, JvmError> {
         let mut vm = Vm {
@@ -615,6 +631,48 @@ impl Vm {
         ("bytecode cycle", String::new())
     }
 
+    /// Resolve one inheritance edge a dex declares — a superclass or an
+    /// interface — and break a hierarchy cycle *here* instead of letting the
+    /// recursion reach the cycle guard: when the edge would re-enter a class def
+    /// that is already loading, this edge is the one that closes the loop, so it
+    /// is cut (the superclass becomes `java.lang.Object`, the interface is
+    /// dropped) and named in an INV line. Both classes still register,
+    /// allocate and dispatch; only the impossible link is dropped.
+    ///
+    /// `Ok(None)` means "this interface is not part of the class".
+    fn resolve_inheritance_edge(
+        &mut self,
+        dex_idx: u32,
+        type_id: u32,
+        child: &str,
+        edge: Edge,
+    ) -> Result<Option<u32>, JvmError> {
+        let desc = self.dex_at(dex_idx).type_descriptor(type_id).to_string();
+        let desc_id = self.intern(&desc);
+        // A class that is already linked cannot close a loop: resolving it is a
+        // lookup, not a recursion.
+        if let Some(&c) = self.class_by_desc.get(&desc_id) {
+            return Ok(Some(c));
+        }
+        if let Some(loc) = self.class_location(&desc) {
+            if self.loading.contains(&loc) {
+                let start = self.loading.iter().position(|&p| p == loc).unwrap_or(0);
+                let chain = self.class_cycle_chain(start);
+                let kind = edge.name();
+                let action = match edge {
+                    Edge::Superclass => "superclass bound to java.lang.Object",
+                    Edge::Interface => "interface dropped",
+                };
+                log::warn!("INV tolerated cyclic {kind}: {child} declares {desc} while {desc} is still loading ({chain}) — {action}");
+                return Ok(match edge {
+                    Edge::Superclass => Some(self.ensure_class_by_desc_id(self.hot.object)?),
+                    Edge::Interface => None,
+                });
+            }
+        }
+        self.ensure_class_by_type(dex_idx, type_id).map(Some)
+    }
+
     fn load_dex_class(&mut self, dex_idx: u32, def_idx: usize) -> Result<u32, JvmError> {
         let def = self.dex_at(dex_idx).classes[def_idx].clone();
         if let Some(&c) = self.class_by_type.get(&(dex_idx, def.class_idx)) {
@@ -645,7 +703,27 @@ impl Vm {
             return Err(JvmError::Resolution(message));
         }
         self.loading.push((dex_idx, def_idx));
+        // The entry is popped on every exit path. A load that fails — a
+        // superclass or interface the host does not implement — used to leave
+        // this def on `loading`, and the next class inheriting from it then met
+        // a stack entry it had never entered, so the guard above reported a
+        // "cyclic class hierarchy" that no dex declares. That leak, not the
+        // bytecode, is what the classifier named `resolver artifact`.
+        let built = self.build_dex_class(dex_idx, def_idx);
+        self.loading.pop();
+        built
+    }
 
+    /// Register one dex class def: link it, lay out its fields, install its
+    /// methods. Reached only from `load_dex_class`, which owns the `loading`
+    /// entry that this function's resolution can recurse through.
+    fn build_dex_class(&mut self, dex_idx: u32, def_idx: usize) -> Result<u32, JvmError> {
+        let def = self.dex_at(dex_idx).classes[def_idx].clone();
+        let desc = self
+            .dex_at(dex_idx)
+            .type_descriptor(def.class_idx)
+            .to_string();
+        let desc_id = self.intern(&desc);
         let is_object = desc_id == self.hot.object;
         let superclass = if def.superclass_idx == u32::MAX {
             if is_object {
@@ -654,11 +732,13 @@ impl Vm {
                 Some(self.ensure_class_by_desc_id(self.hot.object)?)
             }
         } else {
-            Some(self.ensure_class_by_type(dex_idx, def.superclass_idx)?)
+            self.resolve_inheritance_edge(dex_idx, def.superclass_idx, &desc, Edge::Superclass)?
         };
         let mut interfaces = Vec::new();
         for &t in &def.interfaces {
-            interfaces.push(self.ensure_class_by_type(dex_idx, t)?);
+            if let Some(c) = self.resolve_inheritance_edge(dex_idx, t, &desc, Edge::Interface)? {
+                interfaces.push(c);
+            }
         }
 
         let id = self.classes.len() as u32;
@@ -855,7 +935,6 @@ impl Vm {
         cl.statics_lazy = statics_lazy;
         cl.methods = methods;
         cl.dispatch = dispatch;
-        self.loading.pop();
         Ok(id)
     }
 
@@ -2461,6 +2540,305 @@ mod tests {
         assert_eq!(h, JValue::Int(-0x1_0000));
         let j = interpret::run(&mut vm, cid, slots[1], vec![]).expect("run j");
         assert_eq!(j, JValue::Long(0x1234_0000_0000_0000));
+    }
+
+    #[derive(Clone, Copy)]
+    struct AsmClass<'a> {
+        desc: &'a str,
+        super_desc: &'a str,
+        /// `Some(n)`: this class declares `int answer()` returning `n`.
+        answer_ret: Option<i32>,
+    }
+
+    /// Hand-assembled dex for the class-hierarchy tests: the given classes as
+    /// class_defs in order, each optionally declaring `int answer()`.
+    fn classes_dex(classes: &[AsmClass]) -> Vec<u8> {
+        let mut strings: Vec<String> = vec![String::from("answer"), String::from("I")];
+        let mut types: Vec<String> = vec![String::from("I")];
+        for c in classes {
+            for s in [c.desc, c.super_desc] {
+                if !strings.iter().any(|x| x == s) {
+                    strings.push(s.to_string());
+                }
+                if !types.iter().any(|x| x == s) {
+                    types.push(s.to_string());
+                }
+            }
+        }
+        let s_of = |s: &str| -> u32 { strings.iter().position(|x| x == s).unwrap() as u32 };
+        let t_of = |s: &str| -> u32 { types.iter().position(|x| x == s).unwrap() as u32 };
+
+        let mut d = Vec::new();
+        let push4 = |d: &mut Vec<u8>, v: u32| d.extend_from_slice(&v.to_le_bytes());
+
+        d.extend_from_slice(b"dex\n035\0");
+        d.extend_from_slice(&[0u8; 4]); // checksum
+        d.extend_from_slice(&[0u8; 20]); // signature
+        let mut hdr = Vec::new();
+        for _ in 0..20 {
+            hdr.push(d.len());
+            push4(&mut d, 0);
+        }
+        assert_eq!(d.len(), 0x70);
+
+        let mut str_off = Vec::new();
+        for s in &strings {
+            str_off.push(d.len() as u32);
+            uleb(&mut d, s.len() as u32);
+            d.extend_from_slice(s.as_bytes());
+            d.push(0);
+        }
+        let string_data_off = str_off[0];
+
+        pad4(&mut d);
+        let string_ids_off = d.len() as u32;
+        for o in &str_off {
+            push4(&mut d, *o);
+        }
+
+        let type_ids_off = d.len() as u32;
+        for ty in &types {
+            push4(&mut d, s_of(ty));
+        }
+
+        // proto_ids: one prototype, ()I
+        let proto_ids_off = d.len() as u32;
+        push4(&mut d, s_of("I")); // shorty
+        push4(&mut d, t_of("I")); // return type
+        push4(&mut d, 0); // no parameters
+
+        // method_ids: one per class that declares answer(), in class order.
+        let method_ids_off = d.len() as u32;
+        let mut method_of_class: Vec<Option<u32>> = Vec::new();
+        for c in classes {
+            if c.answer_ret.is_some() {
+                push4(&mut d, t_of(c.desc)); // class_idx, proto 0
+                push4(&mut d, s_of("answer"));
+                method_of_class.push(Some(
+                    method_of_class.iter().filter(|m| m.is_some()).count() as u32
+                ));
+            } else {
+                method_of_class.push(None);
+            }
+        }
+        let method_count = method_of_class.iter().filter(|m| m.is_some()).count() as u32;
+
+        let class_defs_off = d.len() as u32;
+        let mut class_data_pos = Vec::new();
+        for c in classes {
+            push4(&mut d, t_of(c.desc)); // class_idx
+            push4(&mut d, 0x1); // access_flags: public
+            push4(&mut d, t_of(c.super_desc)); // superclass_idx
+            push4(&mut d, 0); // interfaces_off
+            push4(&mut d, u32::MAX); // source_file_idx
+            push4(&mut d, 0); // annotations_off
+            class_data_pos.push(d.len());
+            push4(&mut d, 0); // class_data_off (patched below)
+            push4(&mut d, 0); // static_values_off
+        }
+
+        let mut code_offs = Vec::new();
+        for c in classes {
+            let Some(ret) = c.answer_ret else { continue };
+            pad4(&mut d);
+            code_offs.push(d.len() as u32);
+            d.extend_from_slice(&2u16.to_le_bytes()); // registers_size
+            d.extend_from_slice(&1u16.to_le_bytes()); // ins_size: the receiver
+            d.extend_from_slice(&0u16.to_le_bytes()); // outs_size
+            d.extend_from_slice(&0u16.to_le_bytes()); // tries_size
+            push4(&mut d, 0); // debug_info_off
+            push4(&mut d, 3); // insns_size
+            d.extend_from_slice(&0x0113u16.to_le_bytes()); // const/16 v1, #ret
+            d.extend_from_slice(&(ret as u16).to_le_bytes());
+            d.extend_from_slice(&0x010fu16.to_le_bytes()); // return v1
+        }
+
+        // class_data: at most one virtual method per class. An encoded method
+        // item's method_idx_diff is relative to the previous item *in this
+        // class_data*, whose decode starts at 0, so the diff is the global
+        // method index of the method this class declares.
+        pad4(&mut d);
+        let mut class_data_offs = Vec::new();
+        for method_slot in method_of_class.iter() {
+            class_data_offs.push(d.len() as u32);
+            uleb(&mut d, 0); // static_fields
+            uleb(&mut d, 0); // instance_fields
+            uleb(&mut d, 0); // direct_methods
+            match *method_slot {
+                Some(method_idx) => {
+                    uleb(&mut d, 1); // virtual_methods
+                    uleb(&mut d, method_idx); // method_idx_diff
+                    uleb(&mut d, 0x1); // access_flags: public
+                    uleb(&mut d, code_offs[method_idx as usize]);
+                }
+                None => uleb(&mut d, 0), // virtual_methods
+            }
+        }
+
+        pad4(&mut d);
+        let map_off = d.len() as u32;
+        let mut entries: Vec<(u16, u32, u32)> = vec![
+            (0x0000, 1, 0), // header
+            (0x0001, strings.len() as u32, string_ids_off),
+            (0x0002, types.len() as u32, type_ids_off),
+            (0x0003, 1, proto_ids_off),
+            (0x0006, classes.len() as u32, class_defs_off),
+            (0x1000, 1, map_off),
+            (0x2002, strings.len() as u32, string_data_off),
+        ];
+        if method_count > 0 {
+            entries.push((0x0005, method_count, method_ids_off));
+            entries.push((0x2001, code_offs.len() as u32, code_offs[0]));
+        }
+        entries.sort_by_key(|&(ty, _, _)| ty);
+        push4(&mut d, entries.len() as u32);
+        for (ty, size, off) in entries {
+            push4(&mut d, u32::from(ty));
+            push4(&mut d, size);
+            push4(&mut d, off);
+        }
+
+        let file_size = d.len() as u32;
+        let patch = |d: &mut Vec<u8>, off: usize, v: u32| {
+            d[off..off + 4].copy_from_slice(&v.to_le_bytes());
+        };
+        let mut it = hdr.into_iter();
+        let mut f = |d: &mut Vec<u8>, v: u32| patch(d, it.next().unwrap(), v);
+        f(&mut d, file_size);
+        f(&mut d, 0x70); // header_size
+        f(&mut d, 0x1234_5678); // endian_tag
+        f(&mut d, 0); // link_size
+        f(&mut d, 0); // link_off
+        f(&mut d, map_off);
+        f(&mut d, strings.len() as u32);
+        f(&mut d, string_ids_off);
+        f(&mut d, types.len() as u32);
+        f(&mut d, type_ids_off);
+        f(&mut d, 1); // proto_ids_size
+        f(&mut d, proto_ids_off);
+        f(&mut d, 0); // field_ids_size
+        f(&mut d, 0); // field_ids_off
+        f(&mut d, method_count);
+        f(&mut d, method_ids_off);
+        f(&mut d, classes.len() as u32);
+        f(&mut d, class_defs_off);
+        f(&mut d, 0); // data_size
+        f(&mut d, 0); // data_off
+        for (pos, off) in class_data_pos.iter().zip(class_data_offs) {
+            patch(&mut d, *pos, off);
+        }
+        d
+    }
+
+    #[test]
+    fn cyclic_class_hierarchy_loads_with_the_loop_cut_at_the_edge() {
+        // LAlpha; : LBravo; (declares answer), LBravo; : LAlpha;. No dex fixes
+        // this: loading Alpha walks into Bravo, whose declared superclass is
+        // still being loaded. The resolver cuts that one edge, binds Bravo to
+        // java.lang.Object, and both classes must still register, allocate and
+        // dispatch the inherited call.
+        let dex = DexFile::parse(&classes_dex(&[
+            AsmClass {
+                desc: "LAlpha;",
+                super_desc: "LBravo;",
+                answer_ret: None,
+            },
+            AsmClass {
+                desc: "LBravo;",
+                super_desc: "LAlpha;",
+                answer_ret: Some(5),
+            },
+        ]))
+        .expect("parse cyclic dex");
+        let mut vm = Vm::new(vec![dex], Box::new(Vec::new())).expect("vm");
+
+        let alpha = vm
+            .ensure_class_by_desc("LAlpha;")
+            .expect("cyclic hierarchy must load");
+        let bravo = vm
+            .ensure_class_by_desc("LBravo;")
+            .expect("LBravo; must load");
+        assert_eq!(
+            vm.classes[alpha as usize].superclass,
+            Some(bravo),
+            "Alpha keeps the superclass the dex declares"
+        );
+        let object = vm
+            .ensure_class_by_desc("Ljava/lang/Object;")
+            .expect("java.lang.Object");
+        let looped = vm.classes[bravo as usize]
+            .superclass
+            .expect("Bravo must have a superclass");
+        assert_eq!(
+            looped, object,
+            "the edge that closed the loop is bound to java.lang.Object"
+        );
+        assert!(vm.loading.is_empty(), "no class stays on the loading stack");
+
+        let obj = vm.alloc_instance(alpha).expect("allocate an Alpha");
+        let got = vm
+            .invoke_virtual(JValue::Obj(obj), "answer", "()I")
+            .expect("inherited call must dispatch");
+        assert_eq!(got, JValue::Int(5), "dispatched through Bravo");
+    }
+
+    #[test]
+    fn inherited_members_resolve_through_a_normal_superclass_chain() {
+        // The non-cyclic control: LDerived; : LBase; : java.lang.Object, with
+        // the method only on LBase;.
+        let dex = DexFile::parse(&classes_dex(&[
+            AsmClass {
+                desc: "LBase;",
+                super_desc: "Ljava/lang/Object;",
+                answer_ret: Some(11),
+            },
+            AsmClass {
+                desc: "LDerived;",
+                super_desc: "LBase;",
+                answer_ret: None,
+            },
+        ]))
+        .expect("parse chain dex");
+        let mut vm = Vm::new(vec![dex], Box::new(Vec::new())).expect("vm");
+
+        let base = vm.ensure_class_by_desc("LBase;").expect("LBase;");
+        let derived = vm.ensure_class_by_desc("LDerived;").expect("LDerived;");
+        let object = vm
+            .ensure_class_by_desc("Ljava/lang/Object;")
+            .expect("java.lang.Object");
+        assert_eq!(vm.classes[derived as usize].superclass, Some(base));
+        assert_eq!(vm.classes[base as usize].superclass, Some(object));
+
+        let obj = vm.alloc_instance(derived).expect("allocate a Derived");
+        let got = vm
+            .invoke_virtual(JValue::Obj(obj), "answer", "()I")
+            .expect("inherited call must dispatch");
+        assert_eq!(got, JValue::Int(11));
+    }
+
+    #[test]
+    fn a_failed_class_load_does_not_poison_later_loads() {
+        // LWidget; declares a superclass the host does not implement. The first
+        // load must fail naming that class — and must not leave LWidget; on the
+        // loading stack, which made every later load of it report a class
+        // hierarchy cycle the bytecode does not declare.
+        let dex = DexFile::parse(&classes_dex(&[AsmClass {
+            desc: "LWidget;",
+            super_desc: "Lcom/example/Missing;",
+            answer_ret: Some(1),
+        }]))
+        .expect("parse widget dex");
+        let mut vm = Vm::new(vec![dex], Box::new(Vec::new())).expect("vm");
+
+        let first = vm.ensure_class_by_desc("LWidget;").unwrap_err();
+        let second = vm.ensure_class_by_desc("LWidget;").unwrap_err();
+        for (n, e) in [("first", &first), ("second", &second)] {
+            assert!(
+                matches!(&e, JvmError::Resolution(m) if m.contains("class not found: Lcom/example/Missing;")),
+                "{n} load must name the missing superclass, got {e:?}"
+            );
+        }
+        assert!(vm.loading.is_empty(), "no class stays on the loading stack");
     }
 
     #[test]
