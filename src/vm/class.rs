@@ -1615,6 +1615,16 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &[],
         ACC_INTERFACE | ACC_ABSTRACT
     ),
+    // java.util.function.Function: the functional interface the adapter code
+    // bundled next to kotlinx.serialization passes around. It named nothing
+    // until the annotation classes above started loading, then it was the
+    // largest single gap left (587 failed resolutions in one replay).
+    shim!(
+        "Ljava/util/function/Function;",
+        None,
+        &[],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
     // eu.kanade.tachiyomi.source.UnmeteredSource: the marker interface a source
     // implements to say it is free.
     #[cfg(feature = "tachiyomi")]

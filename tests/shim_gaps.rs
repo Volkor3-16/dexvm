@@ -191,7 +191,7 @@ fn headers_companion_field_and_kotlin_markers_resolve() {
 /// The class-hierarchy members the replay names once class loading stops failing
 /// silently: `java.lang.annotation.Annotation` is the declared superclass of
 /// every annotation class in the bundled kotlinx/protobuf tables, and the other
-/// three are interfaces an extension implements or is passed. Each must resolve
+/// others are interfaces an extension implements or is passed. Each must resolve
 /// as the interface it is, with the supertype the platform API declares.
 #[test]
 fn annotation_and_marker_interfaces_resolve_as_interfaces() {
@@ -216,6 +216,10 @@ fn annotation_and_marker_interfaces_resolve_as_interfaces() {
             (
                 "Ljavax/net/ssl/HostnameVerifier;",
                 "javax.net.ssl.HostnameVerifier",
+            ),
+            (
+                "Ljava/util/function/Function;",
+                "java.util.function.Function",
             ),
             (
                 "Leu/kanade/tachiyomi/source/UnmeteredSource;",
