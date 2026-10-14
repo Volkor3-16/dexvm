@@ -18,6 +18,7 @@ use dexvm::context::{Context, SandboxOptions};
 use dexvm::keiyoushi::{HttpData, HttpResp, Keiyoushi};
 use dexvm::vm::error::JvmError;
 use dexvm::vm::native::{native_panic_count, register_global, want_arg_obj};
+use dexvm::vm::object::Native;
 use dexvm::vm::value::JValue;
 use dexvm::vm::{NatErr, NativeEntry, Vm};
 
@@ -351,5 +352,89 @@ fn shim_coverage_is_reportable() {
     assert!(
         !ctx.vm().has_native_for("Lcom/example/NotShimmed;"),
         "an unimplemented class must report as a gap"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 6. a body that is not JSON fails as the Java serializer exception, and says
+//    when the site answered with an HTML page instead of its own data
+// ---------------------------------------------------------------------------
+
+/// The shape a blocked site returns: a challenge page, not the source's JSON.
+const HTML_BLOCK_PAGE: &str = "<!DOCTYPE html>\n<html><head><title>DDoS-Guard</title></head>\n\
+<body>Check your browser before accessing</body></html>";
+
+/// Message of an uncaught `Native::Throwable`.
+fn throwable_message(ctx: &mut Context, id: u32) -> String {
+    ctx.vm()
+        .payload_of(JValue::Obj(id))
+        .and_then(|p| match p {
+            Native::Throwable { message, .. } => message.clone(),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn html_response_body_fails_as_serialization_exception() {
+    init_logger();
+    let mut ctx = context(MOETRUYEN);
+    let text = string_id(&mut ctx, HTML_BLOCK_PAGE);
+
+    let err = match ctx.call(
+        "Lkotlinx/serialization/json/Json;",
+        "decodeFromString",
+        &[JValue::Null, JValue::Obj(text)],
+    ) {
+        Ok(v) => panic!("an html page must not decode as json, got {v:?}"),
+        Err(e) => e,
+    };
+    let JvmError::Uncaught(thrown) = err else {
+        panic!("a json decode failure must be an uncaught java throwable, got {err:?}");
+    };
+    let class = throwable_class(&mut ctx, thrown);
+    let msg = throwable_message(&mut ctx, thrown);
+    eprintln!("compat: decode error: {class}: {msg}");
+
+    // The extension sees the exception its own `try`/`catch` catches, not a
+    // VM-level resolution error that aborts the source.
+    assert_eq!(
+        class, "kotlinx.serialization.SerializationException",
+        "a json decode failure must surface as SerializationException"
+    );
+    // and the message says the payload was an HTML page, which is what the
+    // host uses to report the source as blocked rather than broken.
+    assert!(
+        msg.contains(dexvm::vm::native::HTML_RESPONSE_MARKER),
+        "an html body must carry the blocked marker: {msg}"
+    );
+}
+
+/// A body that is not JSON at all still fails as a catchable SerializationException.
+#[test]
+fn non_json_body_fails_as_serialization_exception() {
+    init_logger();
+    let mut ctx = context(MOETRUYEN);
+    let text = string_id(&mut ctx, "not json at all");
+    let err = match ctx.call(
+        "Lkotlinx/serialization/json/Json;",
+        "decodeFromString",
+        &[JValue::Null, JValue::Obj(text)],
+    ) {
+        Ok(v) => panic!("expected a decode failure, got {v:?}"),
+        Err(e) => e,
+    };
+    let JvmError::Uncaught(thrown) = err else {
+        panic!("expected an uncaught java throwable, got {err:?}");
+    };
+    assert_eq!(
+        throwable_class(&mut ctx, thrown),
+        "kotlinx.serialization.SerializationException"
+    );
+    // Nothing blocked about it: no html marker.
+    assert!(
+        !throwable_message(&mut ctx, thrown).contains(dexvm::vm::native::HTML_RESPONSE_MARKER),
+        "a plain bad payload must not be labelled blocked"
     );
 }

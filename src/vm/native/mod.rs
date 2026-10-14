@@ -346,6 +346,32 @@ pub(crate) fn sioobe(vm: &mut Vm, m: impl Into<String>) -> NatErr {
 pub(crate) fn cce(vm: &mut Vm, m: impl Into<String>) -> NatErr {
     NatErr::Throw(vm.err_cce(m))
 }
+
+/// Marks a decode failure whose payload was an HTML page instead of the JSON
+/// the source asked for: a WAF challenge, a 403 page, an error page. The host
+/// reports such a source as blocked rather than failed, because the VM did not
+/// fail — the site refused to answer.
+pub const HTML_RESPONSE_MARKER: &str = "html response body";
+
+/// True when a body expected to be JSON is an HTML document. No JSON document
+/// can start with `<`, so the first non-whitespace byte settles it.
+pub fn html_response_body(text: &str) -> bool {
+    text.trim_start().starts_with('<')
+}
+
+/// True when a failure message carries the blocked-site marker. The replay
+/// summary and the report scripts bucket sources with this classification.
+pub fn is_blocked_response_error(err: &str) -> bool {
+    err.contains(HTML_RESPONSE_MARKER)
+}
+
+/// `kotlinx.serialization.SerializationException`, the exception a Kotlin
+/// serializer raises when the bytes it was given are not the JSON it expected.
+/// Extensions wrap their parses in `try`/`catch`, so a decode failure has to
+/// arrive as this throwable for their fallbacks to run.
+pub(crate) fn serialization_exception(vm: &mut Vm, m: impl Into<String>) -> NatErr {
+    NatErr::Throw(vm.throwable_of("Lkotlinx/serialization/SerializationException;", m.into()))
+}
 pub(crate) fn no_such_elem(vm: &mut Vm) -> NatErr {
     NatErr::Throw(vm.throwable_of("Ljava/util/NoSuchElementException;", "No value present"))
 }

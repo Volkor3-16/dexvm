@@ -783,14 +783,27 @@ pub(crate) fn json_decode_from_json_element(vm: &mut Vm, args: &[JValue]) -> R {
     run_serializer(vm, args[1], args[2], module)
 }
 
+/// A body the JSON reader cannot parse is a `kotlinx.serialization` failure in
+/// Java. The shim raises the exception the extension's own `try`/`catch` catches
+/// — `SerializationException` — so its fallback parsers and alternate URLs run,
+/// instead of a VM-level resolution error that aborts the source. A body that is
+/// an HTML page also carries `HTML_RESPONSE_MARKER`, which is how the host
+/// reports that source as blocked rather than failed.
+fn json_decode_failure(vm: &mut Vm, text: &str, error: impl std::fmt::Display) -> NatErr {
+    if html_response_body(text) {
+        serialization_exception(vm, format!("json: {error} ({HTML_RESPONSE_MARKER})"))
+    } else {
+        serialization_exception(vm, format!("json: {error}"))
+    }
+}
+
 /// `Json.decodeFromString(strategy, text)`.
 pub(crate) fn json_decode_from_string(vm: &mut Vm, args: &[JValue]) -> R {
     if std::env::var("DEXVM_TRACE").is_ok() {
         eprintln!("DEXVM_TRACE native json_decode_from_string");
     }
     let text = jstr(vm, args[2])?;
-    let val =
-        parse_json(&text).map_err(|e| nat_fatal(JvmError::Resolution(format!("json: {e}"))))?;
+    let val = parse_json(&text).map_err(|e| json_decode_failure(vm, &text, e))?;
     let module = json_module_of(vm, args[0]);
     let node = alloc_json_node(vm, &val)?;
     run_serializer(vm, args[1], node, module)
@@ -816,8 +829,7 @@ pub(crate) fn okio_decode_from_buffered_source(vm: &mut Vm, args: &[JValue]) -> 
         _ => return Err(npe(vm)),
     };
     let text = String::from_utf8_lossy(&bytes[pos..]);
-    let val =
-        parse_json(&text).map_err(|e| nat_fatal(JvmError::Resolution(format!("json: {e}"))))?;
+    let val = parse_json(&text).map_err(|e| json_decode_failure(vm, &text, e))?;
     let module = json_module_of(vm, args[0]);
     let node = alloc_json_node(vm, &val)?;
     run_serializer(vm, args[1], node, module)
@@ -2169,8 +2181,7 @@ fn json_builder_put_null(vm: &mut Vm, args: &[JValue]) -> R {
 fn binary_format_decode_bytes(vm: &mut Vm, args: &[JValue]) -> R {
     let bytes = bytes_of(vm, args[2]).ok_or_else(|| npe(vm))?;
     let text = String::from_utf8_lossy(&bytes);
-    let val =
-        parse_json(&text).map_err(|e| nat_fatal(JvmError::Resolution(format!("json: {e}"))))?;
+    let val = parse_json(&text).map_err(|e| json_decode_failure(vm, &text, e))?;
     let node = alloc_json_node(vm, &val)?;
     run_serializer(vm, args[1], node, None)
 }
@@ -2195,8 +2206,7 @@ fn jvm_streams_decode(vm: &mut Vm, args: &[JValue]) -> R {
         _ => return Err(npe(vm)),
     };
     let text = String::from_utf8_lossy(&bytes[pos..]);
-    let val =
-        parse_json(&text).map_err(|e| nat_fatal(JvmError::Resolution(format!("json: {e}"))))?;
+    let val = parse_json(&text).map_err(|e| json_decode_failure(vm, &text, e))?;
     let node = alloc_json_node(vm, &val)?;
     run_serializer(vm, args[1], node, None)
 }

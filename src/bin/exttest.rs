@@ -118,6 +118,9 @@ enum ErrorType {
     ImageData,
     HttpExecution,
     Permission,
+    /// The site answered with an HTML page instead of the data the source asked
+    /// for: blocked by the site, not broken in the VM.
+    Blocked,
     Unknown,
 }
 
@@ -143,6 +146,7 @@ impl ErrorType {
             ErrorType::ImageData => "image_data",
             ErrorType::HttpExecution => "http_execution",
             ErrorType::Permission => "permission",
+            ErrorType::Blocked => "blocked",
             ErrorType::Unknown => "unknown",
         }
     }
@@ -255,14 +259,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return compare_reports(compare_path, &report, config.json_output.as_deref());
     }
 
-    // Exit with error code if any sources failed
-    if report.summary.failed_sources.is_empty() {
+    // Exit with error code if any sources failed. Blocked sources are counted
+    // separately but still fail the run: a corpus where every site refused to
+    // answer is not a passing corpus.
+    let blocked = report
+        .summary
+        .sources_by_status
+        .get("blocked")
+        .copied()
+        .unwrap_or(0);
+    if report.summary.failed_sources.is_empty() && blocked == 0 {
         println!("\n✓ All sources passed");
         Ok(())
     } else {
         eprintln!(
-            "\n✗ {} source(s) failed",
-            report.summary.failed_sources.len()
+            "\n✗ {} source(s) failed, {} blocked",
+            report.summary.failed_sources.len(),
+            blocked
         );
         std::process::exit(1);
     }
@@ -334,10 +347,10 @@ fn run_tests(config: &TestConfig) -> Result<TestReport, Box<dyn std::error::Erro
         total_extensions += 1;
         total_sources += ext_result.sources.len();
         for src in &ext_result.sources {
-            let status = if src.error.is_some() {
-                "failed"
-            } else {
-                "passed"
+            let status = match &src.error {
+                None => "passed",
+                Some(err) if classify_error_str(err) == ErrorType::Blocked => "blocked",
+                Some(_) => "failed",
             };
             *sources_by_status.entry(status.to_string()).or_insert(0) += 1;
             for (op, res) in &src.operations {
@@ -1480,9 +1493,18 @@ fn classify_error(err: &JvmError) -> ErrorType {
 }
 
 /// Fallback for when we only have the error string (e.g., from describe_error)
+/// True when a failure message says the payload was an HTML page rather than
+/// the source's own data — the blocked-site signature the summary buckets.
+fn is_blocked_error_text(err: &str) -> bool {
+    classify_error_str(err) == ErrorType::Blocked
+}
+
 fn classify_error_str(err: &str) -> ErrorType {
     let lower = err.to_lowercase();
-    if lower.contains("permission") || lower.contains("denied") || lower.contains("sandbox") {
+    if dexvm::vm::native::is_blocked_response_error(&lower) {
+        ErrorType::Blocked
+    } else if lower.contains("permission") || lower.contains("denied") || lower.contains("sandbox")
+    {
         ErrorType::Permission
     } else if lower.contains("http")
         || lower.contains("network")
@@ -1523,8 +1545,17 @@ fn build_summary(extensions: &[ExtensionResult]) -> Summary {
                     .any(|op| !op.success && op.error_type.as_deref() != Some("skipped"));
             let all_skipped = !has_success && !has_failure;
 
+            let blocked = src.error.as_deref().is_some_and(is_blocked_error_text)
+                || src.operations.values().any(|op| {
+                    !op.success && op.error.as_deref().is_some_and(is_blocked_error_text)
+                });
+
             let source_status = if has_success && !has_failure {
                 "passed"
+            } else if has_failure && blocked {
+                // The site returned an HTML page where the source expected its
+                // own data: nothing the VM can parse.
+                "blocked"
             } else if has_failure {
                 "failed"
             } else if all_skipped {
@@ -1854,4 +1885,29 @@ fn source_status(src: &SourceResult) -> String {
         "skipped"
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A payload that is an HTML page is the site refusing to answer: it belongs
+    /// in its own `blocked` bucket, not in the VM-failure bucket.
+    #[test]
+    fn html_payload_is_classified_as_blocked_not_failed() {
+        let blocked = "json: unexpected token Some(60) at byte 0 (HTML response body)";
+        assert_eq!(classify_error_str(blocked).as_str(), "blocked");
+        assert!(is_blocked_error_text(blocked));
+
+        // A payload that is simply malformed is still a failure we own.
+        assert_ne!(
+            classify_error_str("json: unexpected token None at byte 0").as_str(),
+            "blocked"
+        );
+        assert_ne!(
+            classify_error_str("uncaught java.lang.NullPointerException: ").as_str(),
+            "blocked"
+        );
+        assert!(!is_blocked_error_text("resolution error: no method pages"));
+    }
 }

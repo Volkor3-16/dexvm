@@ -77,6 +77,27 @@ panic-free primitives underneath them.
 * Tests: `tests/compat.rs` (six offline contract tests) and the argument
   contract unit tests in `src/vm/native/java/net/url.rs`.
 
+## A body that is not JSON
+
+When a source asks for JSON and the site answers with a challenge page, that
+is a site outcome, not a VM bug, and it is reported as one.
+
+* A `kotlinx.serialization` decode failure is thrown as
+  `kotlinx.serialization.SerializationException` so the extension's own
+  `try`/`catch` sees what real Java would see. It used to be
+  `JvmError::Resolution("json: ...")`, which the bridge could not catch and
+  which aborted the source.
+* When the payload is an HTML document, the exception message carries
+  `html response body` (`dexvm::vm::native::HTML_RESPONSE_MARKER`). The host
+  uses that marker to report the source as **blocked** — the site refused to
+  answer — instead of counting it as a VM failure.
+* `exttest --replay` buckets sources by status (`passed` / `failed` /
+  `skipped_no_sources` / `blocked`) and a blocked source still fails the run:
+  a corpus where every site refused is not a passing corpus.
+* Tests: `html_response_body_fails_as_serialization_exception` and
+  `non_json_body_fails_as_serialization_exception` in `tests/compat.rs`, plus
+  `html_payload_is_classified_as_blocked_not_failed` in `src/bin/exttest.rs`.
+
 ## Known limits
 
 * An absorbed native panic fails the **current** source (`JvmError::Fatal`) and
