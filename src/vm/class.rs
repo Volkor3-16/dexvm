@@ -2520,18 +2520,44 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     #[cfg(feature = "kotlin")]
     shim!("Lkotlin/math/MathKt;", Some("Ljava/lang/Object;"), &[], 0),
     #[cfg(feature = "kotlin")]
-    shim!("Lkotlin/random/Random;", Some("Ljava/lang/Object;"), &[], 0),
+    shim!(
+        "Lkotlin/random/Random;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            // `Random.Default` is read from the interface (`sget-object Random;->Default`),
+            // so the constant has to live on `Random` itself.
+            sdef!(
+                "Default",
+                "Lkotlin/random/Random$Default;",
+                ShimValue::Lazy(native::lazy_random_default)
+            ),
+            sdef!(
+                "Default",
+                "Lkotlin/random/Random;",
+                ShimValue::Lazy(native::lazy_random_default)
+            ),
+        ]
+    ),
     #[cfg(feature = "kotlin")]
     shim!(
         "Lkotlin/random/Random$Default;",
         Some("Lkotlin/random/Random;"),
         &[],
         0,
-        [sdef!(
-            "Default",
-            "Lkotlin/random/Random;",
-            ShimValue::Lazy(native::lazy_random_default)
-        ),]
+        [
+            sdef!(
+                "Default",
+                "Lkotlin/random/Random;",
+                ShimValue::Lazy(native::lazy_random_default)
+            ),
+            sdef!(
+                "Default",
+                "Lkotlin/random/Random$Default;",
+                ShimValue::Lazy(native::lazy_random_default)
+            ),
+        ]
     ),
     #[cfg(feature = "kotlin")]
     shim!(
