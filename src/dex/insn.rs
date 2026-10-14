@@ -882,6 +882,17 @@ mod tests {
             dec(&[0x15 | (4 << 8), 0x1234], 0),
             Insn::ConstHigh16(4, 0x12340000)
         );
+        // The literal lands in the *high* half here, once. A Kotlin synthetic
+        // default-argument constructor tests mask bit 16 with `const/high16
+        // vN, #+00010000`; shifting the decoded value again wraps it to 0.
+        assert_eq!(
+            dec(&[0x15 | (17 << 8), 0x0001], 0),
+            Insn::ConstHigh16(17, 0x0001_0000)
+        );
+        assert_eq!(
+            dec(&[0x19 | (4 << 8), 0x1234], 0),
+            Insn::ConstWideHigh16(4, 0x1234_0000_0000_0000)
+        );
         assert_eq!(
             dec(&[0x18, 0xdef0, 0x9abc, 0x5678, 0x1234], 0),
             Insn::ConstWide(0, 0x123456789abcdef0)

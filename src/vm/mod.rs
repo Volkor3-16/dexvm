@@ -2229,8 +2229,18 @@ mod tests {
         assert_eq!(d.len(), 0x70);
 
         // string_data
-        let strings: [&[u8]; 6] = [b"LHello;", b"Ljava/lang/Object;", b"f", b"g", b"I", b"II"];
-        let mut str_off = [0u32; 6];
+        let strings: [&[u8]; 9] = [
+            b"LHello;",
+            b"Ljava/lang/Object;",
+            b"f",
+            b"g",
+            b"I",
+            b"II",
+            b"h",
+            b"j",
+            b"J",
+        ];
+        let mut str_off = [0u32; 9];
         for (i, s) in strings.iter().enumerate() {
             str_off[i] = d.len() as u32;
             uleb(&mut d, s.len() as u32);
@@ -2246,11 +2256,12 @@ mod tests {
             push4(&mut d, o);
         }
 
-        // type_ids: 0 = LHello;, 1 = Ljava/lang/Object;, 2 = I
+        // type_ids: 0 = LHello;, 1 = Ljava/lang/Object;, 2 = I, 3 = J
         let type_ids_off = d.len() as u32;
         push4(&mut d, 0);
         push4(&mut d, 1);
         push4(&mut d, 4); // "I"
+        push4(&mut d, 8); // "J"
 
         // type_list: params (I, I)
         let type_list_off = d.len() as u32;
@@ -2259,7 +2270,7 @@ mod tests {
         d.extend_from_slice(&2u16.to_le_bytes());
         pad4(&mut d);
 
-        // proto_ids: p0 = (II)I, p1 = ()I
+        // proto_ids: p0 = (II)I, p1 = ()I, p2 = ()J
         let proto_ids_off = d.len() as u32;
         push4(&mut d, 5); // shorty "II"
         push4(&mut d, 2); // return "I"
@@ -2267,13 +2278,21 @@ mod tests {
         push4(&mut d, 4); // shorty "I"
         push4(&mut d, 2); // return "I"
         push4(&mut d, 0); // no params
+        push4(&mut d, 8); // shorty "J"
+        push4(&mut d, 3); // return "J"
+        push4(&mut d, 0); // no params
 
-        // method_ids: m0 = LHello;.f(II)I, m1 = LHello;.g()I
+        // method_ids: m0 = LHello;.f(II)I, m1 = LHello;.g()I,
+        //             m2 = LHello;.h()I, m3 = LHello;.j()J
         let method_ids_off = d.len() as u32;
         push4(&mut d, 0); // class 0, proto 0
         push4(&mut d, 2); // name "f"
         push4(&mut d, 1u32 << 16); // class 0, proto 1
         push4(&mut d, 3); // name "g"
+        push4(&mut d, 1u32 << 16); // class 0, proto 1
+        push4(&mut d, 6); // name "h"
+        push4(&mut d, 2u32 << 16); // class 0, proto 2
+        push4(&mut d, 7); // name "j"
 
         // class_defs: one class
         let class_defs_off = d.len() as u32;
@@ -2319,12 +2338,38 @@ mod tests {
         d.extend_from_slice(&0x000au16.to_le_bytes()); // move-result v0
         d.extend_from_slice(&0x000fu16.to_le_bytes()); // return v0
 
-        // class_data: 2 direct (static) methods
+        // code_item h: const/high16 v0, #-00010000; return v0
+        pad4(&mut d);
+        let code_h_off = d.len() as u32;
+        d.extend_from_slice(&1u16.to_le_bytes()); // registers
+        d.extend_from_slice(&0u16.to_le_bytes()); // ins
+        d.extend_from_slice(&0u16.to_le_bytes()); // outs
+        d.extend_from_slice(&0u16.to_le_bytes()); // tries
+        push4(&mut d, 0); // debug_info_off
+        push4(&mut d, 3); // insns_size
+        d.extend_from_slice(&0x0015u16.to_le_bytes()); // const/high16 v0
+        d.extend_from_slice(&0xffffu16.to_le_bytes()); // #-00010000
+        d.extend_from_slice(&0x000fu16.to_le_bytes()); // return v0
+
+        // code_item j: const-wide/high16 v0, #+1234000000000000; return-wide v0
+        pad4(&mut d);
+        let code_j_off = d.len() as u32;
+        d.extend_from_slice(&2u16.to_le_bytes()); // registers
+        d.extend_from_slice(&0u16.to_le_bytes()); // ins
+        d.extend_from_slice(&0u16.to_le_bytes()); // outs
+        d.extend_from_slice(&0u16.to_le_bytes()); // tries
+        push4(&mut d, 0); // debug_info_off
+        push4(&mut d, 3); // insns_size
+        d.extend_from_slice(&0x0019u16.to_le_bytes()); // const-wide/high16 v0
+        d.extend_from_slice(&0x1234u16.to_le_bytes());
+        d.extend_from_slice(&0x0010u16.to_le_bytes()); // return-wide v0
+
+        // class_data: 4 direct (static) methods
         pad4(&mut d);
         let class_data_off = d.len() as u32;
         uleb(&mut d, 0); // static_fields
         uleb(&mut d, 0); // instance_fields
-        uleb(&mut d, 2); // direct_methods
+        uleb(&mut d, 4); // direct_methods
         uleb(&mut d, 0); // virtual_methods
         uleb(&mut d, 0); // m0 idx diff
         uleb(&mut d, 0x8); // access_flags: static
@@ -2332,21 +2377,27 @@ mod tests {
         uleb(&mut d, 1); // m1 idx diff
         uleb(&mut d, 0x8); // access_flags: static
         uleb(&mut d, code_g_off);
+        uleb(&mut d, 1); // m2 idx diff
+        uleb(&mut d, 0x8); // access_flags: static
+        uleb(&mut d, code_h_off);
+        uleb(&mut d, 1); // m3 idx diff
+        uleb(&mut d, 0x8); // access_flags: static
+        uleb(&mut d, code_j_off);
 
         // map_list
         pad4(&mut d);
         let map_off = d.len() as u32;
         let map_entries: [(u16, u32, u32); 10] = [
             (0x0000, 1, 0), // header
-            (0x0001, 6, string_ids_off),
-            (0x0002, 2, type_ids_off),
-            (0x0003, 2, proto_ids_off),
-            (0x0005, 2, method_ids_off),
+            (0x0001, 9, string_ids_off),
+            (0x0002, 4, type_ids_off),
+            (0x0003, 3, proto_ids_off),
+            (0x0005, 4, method_ids_off),
             (0x0006, 1, class_defs_off),
             (0x1000, 1, map_off),
             (0x1001, 1, type_list_off),
-            (0x2001, 2, code_f_off),
-            (0x2002, 6, string_data_off),
+            (0x2001, 4, code_f_off),
+            (0x2002, 9, string_data_off),
         ];
         push4(&mut d, map_entries.len() as u32);
         for (ty, size, off) in map_entries {
@@ -2368,15 +2419,15 @@ mod tests {
         f(&mut d, 0); // link_size
         f(&mut d, 0); // link_off
         f(&mut d, map_off);
-        f(&mut d, 6); // string_ids_size
+        f(&mut d, 9); // string_ids_size
         f(&mut d, string_ids_off);
-        f(&mut d, 2); // type_ids_size
+        f(&mut d, 4); // type_ids_size
         f(&mut d, type_ids_off);
-        f(&mut d, 2); // proto_ids_size
+        f(&mut d, 3); // proto_ids_size
         f(&mut d, proto_ids_off);
         f(&mut d, 0); // field_ids_size
         f(&mut d, 0); // field_ids_off
-        f(&mut d, 2); // method_ids_size
+        f(&mut d, 4); // method_ids_size
         f(&mut d, method_ids_off);
         f(&mut d, 1); // class_defs_size
         f(&mut d, class_defs_off);
@@ -2384,6 +2435,32 @@ mod tests {
         f(&mut d, 0); // data_off
         patch(&mut d, class_data_off_pos, class_data_off);
         d
+    }
+
+    #[test]
+    fn high_half_constants_reach_the_frame_once() {
+        // `const/high16` and `const-wide/high16` put their 16-bit literal in the
+        // top half of the value. A Kotlin synthetic default-argument constructor
+        // tests mask bit 16 with `const/high16 vN, #+00010000`, so a value that
+        // is shifted twice arrives as 0 and the default is never substituted.
+        let dex = DexFile::parse(&hello_dex()).expect("parse dex");
+        let mut vm = Vm::new(vec![dex], Box::new(Vec::new())).expect("vm");
+        let cid = vm.ensure_class_by_desc("LHello;").expect("load LHello;");
+        let names = ["h", "j"];
+        let slots: Vec<u32> = names
+            .iter()
+            .map(|name| {
+                vm.classes[cid as usize]
+                    .methods
+                    .iter()
+                    .position(|m| vm.str_of(m.name) == *name)
+                    .expect(name) as u32
+            })
+            .collect();
+        let h = interpret::run(&mut vm, cid, slots[0], vec![]).expect("run h");
+        assert_eq!(h, JValue::Int(-0x1_0000));
+        let j = interpret::run(&mut vm, cid, slots[1], vec![]).expect("run j");
+        assert_eq!(j, JValue::Long(0x1234_0000_0000_0000));
     }
 
     #[test]

@@ -823,7 +823,11 @@ impl Vm {
                 Flow::Next(0)
             }
             Insn::ConstHigh16(d, lit) => {
-                f.regs[*d as usize] = JValue::Int(lit.wrapping_shl(16));
+                // `decode_all` already placed the 16-bit literal in the high half
+                // (`insn.rs`), so shifting it again here would wrap it to zero: every
+                // `const/high16` value — mask bits above 15, colour constants — would
+                // arrive as 0.
+                f.regs[*d as usize] = JValue::Int(*lit);
                 Flow::Next(0)
             }
             Insn::ConstWide16(d, lit) | Insn::ConstWide32(d, lit) => {
@@ -835,7 +839,8 @@ impl Vm {
                 Flow::Next(0)
             }
             Insn::ConstWideHigh16(d, lit) => {
-                f.regs[*d as usize] = JValue::Long(i64::from(lit.wrapping_shl(16) as u32) << 32);
+                // Same here: the decoder shifted the literal into the top 16 bits.
+                f.regs[*d as usize] = JValue::Long(*lit);
                 Flow::Next(0)
             }
             Insn::ConstString(d, str_idx) | Insn::ConstStringJumbo(d, str_idx) => {
