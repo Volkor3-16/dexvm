@@ -1154,25 +1154,31 @@ pub(crate) fn evaluator_to_string(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn evaluator_init(vm: &mut Vm, args: &[JValue]) -> R {
-    let this = args[0].as_obj();
+    let this = want_obj(vm, args[0])?;
     let s = jstr(vm, args[1])?;
-    vm.arena.objects[this as usize].native = Some(Native::Str(s));
+    if let Some(node) = vm.arena.objects.get_mut(this as usize) {
+        node.native = Some(Native::Str(s));
+    }
     Ok(JValue::Null)
 }
 
 pub(crate) fn textnode_init(vm: &mut Vm, args: &[JValue]) -> R {
-    let this = args[0].as_obj();
+    let this = want_obj(vm, args[0])?;
     let s = jstr(vm, args[1])?;
-    vm.arena.objects[this as usize].native = Some(Native::Str(s));
+    if let Some(node) = vm.arena.objects.get_mut(this as usize) {
+        node.native = Some(Native::Str(s));
+    }
     Ok(JValue::Null)
 }
 
 pub(crate) fn elements_init(vm: &mut Vm, args: &[JValue]) -> R {
-    let this = args[0].as_obj();
-    vm.arena.objects[this as usize].native = Some(Native::JsoupElements {
-        doc: JsoupDocRef::new(Document::from("")),
-        ids: Vec::new(),
-    });
+    let this = want_obj(vm, args[0])?;
+    if let Some(node) = vm.arena.objects.get_mut(this as usize) {
+        node.native = Some(Native::JsoupElements {
+            doc: JsoupDocRef::new(Document::from("")),
+            ids: Vec::new(),
+        });
+    }
     Ok(JValue::Null)
 }
 

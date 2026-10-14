@@ -109,7 +109,7 @@ pub(crate) fn set_clear(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn set_iterator(vm: &mut Vm, args: &[JValue]) -> R {
-    let set = args[0].as_obj();
+    let set = want_obj(vm, args[0])?;
     alloc(
         vm,
         "Ljava/util/Iterator;",

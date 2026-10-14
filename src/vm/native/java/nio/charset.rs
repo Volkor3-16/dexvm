@@ -28,7 +28,9 @@ pub fn lazy_charset_ascii(vm: &mut Vm) -> JValue {
 pub(crate) fn normalize_charset(name: &str) -> Option<String> {
     let up = name.trim().to_uppercase();
     let n = match up.as_str() {
-        "UTF8" | "UTF_8" => "UTF-8",
+        // The canonical spelling has to work: URLEncoder.encode(s, "UTF-8") is
+        // the call every extension makes.
+        "UTF-8" | "UTF8" | "UTF_8" => "UTF-8",
         "US-ASCII" | "ASCII" | "US_ASCII" | "646" => "US-ASCII",
         "UTF-16" | "UTF16" | "UTF_16" => "UTF-16",
         "UTF-16LE" | "UTF16LE" | "UTF_16LE" => "UTF-16LE",

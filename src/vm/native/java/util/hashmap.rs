@@ -265,7 +265,7 @@ pub(crate) fn map_values(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn map_entries(vm: &mut Vm, args: &[JValue]) -> R {
-    let map_id = args[0].as_obj();
+    let map_id = want_obj(vm, args[0])?;
     let entries = match payload(vm, JValue::Obj(map_id)) {
         Some(Native::Map(entries)) => entries.len(),
         _ => return Err(npe(vm)),

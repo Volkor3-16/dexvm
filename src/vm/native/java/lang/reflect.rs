@@ -49,7 +49,8 @@ pub(crate) fn field_set(vm: &mut Vm, args: &[JValue]) -> R {
     if !vm.class_has_instance_fields(class) {
         return Ok(JValue::Null);
     }
-    let ok = vm.instance_field_set(args[1].as_obj(), &name_str, args[2]);
+    let target = want_obj(vm, args[1])?;
+    let ok = vm.instance_field_set(target, &name_str, args[2]);
     if !ok {
         return Err(NatErr::Throw(vm.throwable_of(
             "Ljava/lang/NoSuchFieldException;",
@@ -67,7 +68,8 @@ pub(crate) fn field_get(vm: &mut Vm, args: &[JValue]) -> R {
     if !vm.class_has_instance_fields(class) {
         return Ok(JValue::Null);
     }
-    match vm.instance_field(args[1].as_obj(), &name_str) {
+    let target = want_obj(vm, args[1])?;
+    match vm.instance_field(target, &name_str) {
         Some(v) => Ok(v),
         None => Err(NatErr::Throw(vm.throwable_of(
             "Ljava/lang/NoSuchFieldException;",

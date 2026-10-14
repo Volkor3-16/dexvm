@@ -208,7 +208,7 @@ pub(crate) fn list_last_index_of(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn list_iterator(vm: &mut Vm, args: &[JValue]) -> R {
-    let list = args[0].as_obj();
+    let list = want_obj(vm, args[0])?;
     alloc(
         vm,
         "Ljava/util/Iterator;",
@@ -217,7 +217,7 @@ pub(crate) fn list_iterator(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn list_iterator_at(vm: &mut Vm, args: &[JValue]) -> R {
-    let list = args[0].as_obj();
+    let list = want_obj(vm, args[0])?;
     let idx = int_of(vm, args[1]).max(0) as usize;
     alloc(
         vm,
@@ -281,7 +281,12 @@ pub(crate) fn list_to_array_typed(vm: &mut Vm, args: &[JValue]) -> R {
             }
             return Ok(args[1]);
         }
-        let cls = vm.arena.objects[args[1].as_obj() as usize].class;
+        let Some(tpl) = args[1].as_obj_opt() else {
+            return Err(npe(vm));
+        };
+        let Some(cls) = vm.arena.objects.get(tpl as usize).map(|o| o.class) else {
+            return Err(npe(vm));
+        };
         return Ok(JValue::Obj(vm.arena.alloc(
             cls,
             Vec::new(),
@@ -396,7 +401,7 @@ pub(crate) fn list_to_string(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn list_sort_cmp(vm: &mut Vm, args: &[JValue]) -> R {
-    let list = args[0].as_obj();
+    let list = want_obj(vm, args[0])?;
     let cmp = args[1];
     let items = match payload(vm, JValue::Obj(list)) {
         Some(Native::List(items)) => items.clone(),

@@ -5,7 +5,10 @@ fn unit_millis(vm: &mut Vm, v: JValue) -> Result<i64, NatErr> {
     if v.is_null_ref() {
         return Ok(1000);
     }
-    let desc = vm.class_desc_str(obj_class(vm, v.as_obj()));
+    let Some(id) = v.as_obj_opt() else {
+        return Ok(1);
+    };
+    let desc = vm.class_desc_str(obj_class(vm, id));
     Ok(if desc.starts_with("Lkotlin/time/DurationUnit;") {
         1000
     } else {

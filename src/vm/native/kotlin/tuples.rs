@@ -20,8 +20,10 @@ pub(super) fn pair_get_second(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(super) fn pair_init(vm: &mut Vm, args: &[JValue]) -> R {
-    let this = args[0].as_obj();
-    vm.arena.objects[this as usize].native = Some(Native::Pair(args[1], args[2]));
+    let this = want_obj(vm, args[0])?;
+    if let Some(pair) = vm.arena.objects.get_mut(this as usize) {
+        pair.native = Some(Native::Pair(args[1], args[2]));
+    }
     Ok(JValue::Null)
 }
 
@@ -63,8 +65,10 @@ pub(super) fn triple_component3(vm: &mut Vm, args: &[JValue]) -> R {
     triple_get_third(vm, args)
 }
 pub(super) fn triple_init(vm: &mut Vm, args: &[JValue]) -> R {
-    vm.arena.objects[args[0].as_obj() as usize].native =
-        Some(Native::Triple(args[1], args[2], args[3]));
+    let this = want_obj(vm, args[0])?;
+    if let Some(triple) = vm.arena.objects.get_mut(this as usize) {
+        triple.native = Some(Native::Triple(args[1], args[2], args[3]));
+    }
     Ok(JValue::Null)
 }
 pub(crate) const TABLE: &[NativeEntry] = &[

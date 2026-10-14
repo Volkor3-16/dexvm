@@ -6,8 +6,10 @@
 //! `register` and for shim class method dispatch, and `register` installs
 //! the functions into `Vm::natives` keyed by (interned class, name, sig).
 
+pub(crate) use std::cell::{Cell, RefCell};
 pub(crate) use std::cmp::Ordering;
 pub(crate) use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+pub(crate) use std::sync::Once;
 pub(crate) use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) use ::fancy_regex::Regex;
@@ -22,6 +24,7 @@ pub(crate) use crate::vm::object::{JsonVal, PrimitiveSerializerKind};
 #[cfg(feature = "android")]
 pub(crate) use crate::vm::object::{PreferenceEdit, PreferenceValue};
 pub(crate) use crate::vm::value::JValue;
+pub(crate) use crate::vm::value::ValueTypeMismatch;
 pub use crate::vm::{MethodRef, NatErr, NativeEntry, NativeFn, Target, Vm};
 
 pub(crate) type R = Result<JValue, NatErr>;
@@ -345,6 +348,132 @@ pub(crate) fn cce(vm: &mut Vm, m: impl Into<String>) -> NatErr {
 }
 pub(crate) fn no_such_elem(vm: &mut Vm) -> NatErr {
     NatErr::Throw(vm.throwable_of("Ljava/util/NoSuchElementException;", "No value present"))
+}
+
+// ---------------------------------------------------------------------------
+// argument access that raises JVM throwables instead of panicking the host
+// ---------------------------------------------------------------------------
+
+/// Read a value as a reference id. A DEX null reference (`Null`, or the
+/// `Int(0)` a `const 0` leaves in an object register) raises
+/// `NullPointerException`; a genuinely different kind raises
+/// `ClassCastException`. Both are catchable by the extension's own bytecode.
+///
+/// Natives (including host-supplied ones from [`Vm::register_native`] or
+/// [`register_global`]) should read
+/// arguments through these helpers rather than indexing or unwrapping.
+pub fn want_obj(vm: &mut Vm, v: JValue) -> Result<u32, NatErr> {
+    match v.as_obj_checked() {
+        Ok(id) => Ok(id),
+        Err(ValueTypeMismatch::NullRef) => Err(npe(vm)),
+        Err(ValueTypeMismatch::WrongType(kind)) => {
+            Err(cce(vm, format!("expected object, got {kind}")))
+        }
+    }
+}
+
+/// [`want_obj`] for a positional argument, bounds-checking the argument list
+/// first so a short call becomes `ArrayIndexOutOfBoundsException` instead of a
+/// host-side index panic.
+pub fn want_arg_obj(vm: &mut Vm, args: &[JValue], i: usize) -> Result<u32, NatErr> {
+    let Some(v) = args.get(i) else {
+        return Err(aioobe(vm, i as i32, args.len() as i32));
+    };
+    want_obj(vm, *v)
+}
+
+/// Read a value as an `int`, keeping the existing `Null`-is-zero convention.
+pub fn want_int(vm: &mut Vm, v: JValue) -> Result<i32, NatErr> {
+    match v.as_int_checked() {
+        Ok(v) => Ok(v),
+        Err(ValueTypeMismatch::NullRef) => Err(npe(vm)),
+        Err(ValueTypeMismatch::WrongType(kind)) => {
+            Err(iae(vm, format!("expected int, got {kind}")))
+        }
+    }
+}
+
+/// Read a value as a `long`, widening an `int`.
+pub fn want_long(vm: &mut Vm, v: JValue) -> Result<i64, NatErr> {
+    match v.as_long_checked() {
+        Ok(v) => Ok(v),
+        Err(ValueTypeMismatch::NullRef) => Err(npe(vm)),
+        Err(ValueTypeMismatch::WrongType(kind)) => {
+            Err(iae(vm, format!("expected long, got {kind}")))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// native panic boundary
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// Panic message + source location captured while inside a native call.
+    static NATIVE_PANIC: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Nesting depth of guarded native calls on this thread.
+    static NATIVE_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+static NATIVE_PANIC_TOTAL: AtomicU64 = AtomicU64::new(0);
+static NATIVE_PANIC_HOOK: Once = Once::new();
+
+/// Installs a panic hook that records panics raised inside a guarded native
+/// call for [`exit_native`] to report. Outside a native call the previous hook
+/// runs unchanged, so panics elsewhere still print exactly as before.
+fn install_native_panic_hook() {
+    NATIVE_PANIC_HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let inside = NATIVE_DEPTH.try_with(|d| d.get()).unwrap_or(0);
+            if inside == 0 {
+                previous(info);
+                return;
+            }
+            let message = info
+                .payload()
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| {
+                    info.payload()
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                })
+                .unwrap_or_else(|| "panic without a message".to_string());
+            let site = info
+                .location()
+                .map(|l| format!("{}:{}", l.file(), l.line()))
+                .unwrap_or_else(|| "unknown site".to_string());
+            let _ = NATIVE_PANIC
+                .try_with(|cell| *cell.borrow_mut() = Some(format!("{site}: {message}")));
+        }));
+    });
+}
+
+/// Marks this thread as executing a host native. Paired with [`exit_native`].
+pub(crate) fn enter_native() {
+    install_native_panic_hook();
+    NATIVE_DEPTH.with(|d| d.set(d.get() + 1));
+}
+
+/// Leaves the guarded native scope and returns the captured panic text, if the
+/// native panicked.
+pub(crate) fn exit_native() -> Option<String> {
+    NATIVE_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    NATIVE_PANIC
+        .try_with(|cell| cell.borrow_mut().take())
+        .unwrap_or(None)
+}
+
+pub(crate) fn record_native_panic() {
+    NATIVE_PANIC_TOTAL.fetch_add(1, AtomicOrdering::SeqCst);
+}
+
+/// Number of host-native invocations that panicked and were absorbed by the
+/// boundary instead of aborting the process. Hosts report this so a regression
+/// from "no panics" is visible even when the process survives.
+pub fn native_panic_count() -> u64 {
+    NATIVE_PANIC_TOTAL.load(AtomicOrdering::SeqCst)
 }
 
 /// Immutable access to an object's native payload.
@@ -890,8 +1019,11 @@ pub(crate) fn inv_virt(
         args: Vec::new(),
         class_desc: 0,
     };
+    let Some(recv_id) = recv.as_obj_opt() else {
+        return Err(npe(vm));
+    };
     let target = vm
-        .resolve_target(InvokeKind::Virtual, &mref, Some(recv.as_obj()), 0)
+        .resolve_target(InvokeKind::Virtual, &mref, Some(recv_id), 0)
         .map_err(nat_fatal)?;
     let mut args = Vec::with_capacity(1 + extra.len());
     args.push(recv);

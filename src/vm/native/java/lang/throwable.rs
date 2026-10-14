@@ -119,7 +119,7 @@ pub(crate) fn throwable_init_cause(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn throwable_to_string(vm: &mut Vm, args: &[JValue]) -> R {
-    let recv = args[0].as_obj();
+    let recv = want_obj(vm, args[0])?;
     let class = obj_class(vm, recv);
     let desc = vm.str_of(vm.classes[class as usize].descriptor);
     let name = simple_name_of(desc);
@@ -130,7 +130,7 @@ pub(crate) fn throwable_to_string(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn throwable_print_stack_trace(vm: &mut Vm, args: &[JValue]) -> R {
-    let recv = args[0].as_obj();
+    let recv = want_obj(vm, args[0])?;
     let class = obj_class(vm, recv);
     let desc = vm.str_of(vm.classes[class as usize].descriptor);
     let name = simple_name_of(desc);

@@ -183,10 +183,10 @@ pub(crate) fn class_is_instance(vm: &mut Vm, args: &[JValue]) -> R {
     };
     let target = *target;
     let obj = args[1];
-    if obj.is_null() {
+    let Some(obj_id) = obj.as_obj_opt() else {
         return Ok(JValue::Int(0));
-    }
-    let obj_class = obj_class(vm, obj.as_obj());
+    };
+    let obj_class = obj_class(vm, obj_id);
     let ok = vm.is_assignable(obj_class, target).map_err(nat_fatal)?;
     Ok(JValue::Int(i32::from(ok)))
 }
@@ -265,7 +265,10 @@ pub(crate) fn class_cast(vm: &mut Vm, args: &[JValue]) -> R {
     let Some(ClassOrPrim::Class(target)) = class_cop(vm, args[0]) else {
         return Ok(obj);
     };
-    let obj_class = obj_class(vm, obj.as_obj());
+    let Some(obj_id) = obj.as_obj_opt() else {
+        return Err(cce(vm, format!("cannot cast {}", obj.ty_tag())));
+    };
+    let obj_class = obj_class(vm, obj_id);
     let target = *target;
     let ok = vm.is_assignable(obj_class, target).map_err(nat_fatal)?;
     if ok {

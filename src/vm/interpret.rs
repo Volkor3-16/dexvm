@@ -103,7 +103,7 @@ pub fn run(vm: &mut Vm, class: u32, slot: u32, args: Vec<JValue>) -> Result<JVal
             .natives
             .get(&key)
             .ok_or_else(|| JvmError::Fatal(format!("no native for {key:?}")))?;
-        return match f(vm, &args) {
+        return match vm.call_native_guarded(f, &args) {
             Ok(v) => Ok(v),
             Err(NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
             Err(NatErr::Fatal(e)) => Err(e),
@@ -223,7 +223,49 @@ impl Vm {
                 }
             }
         }
+        // A native the host supplied at runtime still has to be named when it
+        // fails; the static tables cannot know about it.
+        for e in crate::vm::native::global_native_entries() {
+            if e.f as usize == nf as usize {
+                return format!("{}::{}{}", e.class, e.name, e.sig);
+            }
+        }
+        for e in &self.host_natives {
+            if e.f as usize == nf as usize {
+                return format!("{}::{}{}", e.class, e.name, e.sig);
+            }
+        }
         "?".into()
+    }
+
+    /// Invoke a host native behind a panic boundary.
+    ///
+    /// A native that panics (type mismatch, bad index) must not take the whole
+    /// process down: the panic is absorbed, named, counted, and turned into a
+    /// fatal VM error so the current source fails while the host moves on to
+    /// the next one. Natives should not rely on this — they raise JVM
+    /// throwables through `want_obj`/`want_int`/`want_long`, which the
+    /// extension's own bytecode can catch.
+    pub(crate) fn call_native_guarded(
+        &mut self,
+        nf: crate::vm::NativeFn,
+        args: &[JValue],
+    ) -> Result<JValue, crate::vm::NatErr> {
+        crate::vm::native::enter_native();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| nf(self, args)));
+        let captured = crate::vm::native::exit_native();
+        match result {
+            Ok(inner) => inner,
+            Err(_) => {
+                crate::vm::native::record_native_panic();
+                let label = self.native_label(nf);
+                let detail = captured.unwrap_or_else(|| "panic without a message".to_string());
+                log::error!("ERR native-panic in {label}: {detail} (source aborted)");
+                Err(crate::vm::NatErr::Fatal(JvmError::Fatal(format!(
+                    "native panic in {label}: {detail}"
+                ))))
+            }
+        }
     }
 
     pub fn run_loop(&mut self) -> Result<JValue, JvmError> {
@@ -354,7 +396,7 @@ impl Vm {
                                         ri += 1;
                                     }
                                 }
-                                match nf(self, &call_args) {
+                                match self.call_native_guarded(nf, &call_args) {
                                     Ok(v) => {
                                         // <init> natives conventionally
                                         // return a freshly allocated object;
@@ -1259,7 +1301,22 @@ impl Vm {
                         }
                         return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
                     }
-                    Some(r.as_obj())
+                    match r.as_obj_opt() {
+                        Some(id) => Some(id),
+                        // A receiver that is neither a reference nor a null is a
+                        // type confusion in the bytecode being executed. Raise a
+                        // Java NullPointerException the caller's own try/catch can
+                        // see, instead of panicking the host.
+                        None => {
+                            debug!(
+                                "DBG bad-recv at {}::{} receiver-kind={}",
+                                self.class_desc_str(f.class),
+                                self.str_of(mref.name),
+                                r.ty_tag()
+                            );
+                            return Ok(StepOutcome::Throw(JValue::Obj(self.err_npe())));
+                        }
+                    }
                 };
                 let target = self.resolve_target(*kind, &mref, receiver, f.class)?;
                 let tcls = match &target {

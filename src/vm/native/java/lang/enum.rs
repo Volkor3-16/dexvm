@@ -62,7 +62,11 @@ fn enum_value_of(vm: &mut Vm, args: &[JValue]) -> R {
     let statics = vm.classes[class as usize].statics.clone();
     for value in statics {
         if let Some(Native::Enum { name, .. }) = payload(vm, value) {
-            if name == &wanted && obj_class(vm, value.as_obj()) == class {
+            if name == &wanted
+                && value
+                    .as_obj_opt()
+                    .is_some_and(|id| obj_class(vm, id) == class)
+            {
                 return Ok(value);
             }
         }

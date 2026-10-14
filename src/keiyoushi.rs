@@ -28,6 +28,14 @@ use crate::vm::Vm;
 
 pub use crate::vm::native::keiyoushi::{HttpData, HttpResp};
 
+/// Unwrap an object value the bridge itself produced. A non-object here means a
+/// shim handed back the wrong kind of value: report it as a resolution error
+/// instead of panicking the host.
+fn obj_id(v: JValue, what: &str) -> Result<u32, JvmError> {
+    v.as_obj_opt()
+        .ok_or_else(|| JvmError::Resolution(format!("{what} is not an object ({})", v.ty_tag())))
+}
+
 /// A live engine: one extension dex plus the host bridge.
 pub struct Keiyoushi {
     ctx: Context,
@@ -855,7 +863,12 @@ impl Keiyoushi {
         };
         let mut out = Vec::with_capacity(items.len());
         for f in items {
-            let id = f.as_obj();
+            let Some(id) = f.as_obj_opt() else {
+                return Err(JvmError::Resolution(format!(
+                    "filter entry is not an object ({})",
+                    f.ty_tag()
+                )));
+            };
             let kind = self.filter_kind(id);
             if let Some(Native::SFilter {
                 name,
@@ -873,7 +886,12 @@ impl Keiyoushi {
                         options: self.str_options(options)?,
                     });
                     for c in children {
-                        let cid = c.as_obj();
+                        let Some(cid) = c.as_obj_opt() else {
+                            return Err(JvmError::Resolution(format!(
+                                "filter child is not an object ({})",
+                                c.ty_tag()
+                            )));
+                        };
                         let k = self.filter_kind(cid);
                         if let Some(Native::SFilter {
                             name,
@@ -1203,31 +1221,32 @@ impl Keiyoushi {
                             .ctx
                             .vm()
                             .alloc_string(&format!("{}/", base_url.trim_end_matches('/')));
+                        let builder_id = obj_id(builder, "okhttp3.Request$Builder")?;
                         self.ctx.invoke_on(
-                            builder.as_obj(),
+                            builder_id,
                             "header",
                             "(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/Request$Builder;",
                             &[referer_name, referer],
                         )?;
-                        req = self.ctx.invoke_on(
-                            builder.as_obj(),
-                            "build",
-                            "()Lokhttp3/Request;",
-                            &[],
-                        )?;
+                        req =
+                            self.ctx
+                                .invoke_on(builder_id, "build", "()Lokhttp3/Request;", &[])?;
                     }
                 }
             }
         }
         let call = self.ctx.invoke_on(
-            client.as_obj(),
+            obj_id(client, "okhttp3.OkHttpClient")?,
             "newCall",
             "(Lokhttp3/Request;)Lokhttp3/Call;",
             &[req],
         )?;
-        let resp = self
-            .ctx
-            .invoke_on(call.as_obj(), "execute", "()Lokhttp3/Response;", &[])?;
+        let resp = self.ctx.invoke_on(
+            obj_id(call, "okhttp3.Call")?,
+            "execute",
+            "()Lokhttp3/Response;",
+            &[],
+        )?;
         match self.ctx.vm().payload_of(resp) {
             Some(Native::Response { body: Some(b), .. }) => Ok(b.clone()),
             Some(Native::Response { body: None, .. }) => Ok(Vec::new()),

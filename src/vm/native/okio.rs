@@ -504,7 +504,7 @@ fn okio_buffer_read_byte(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 fn okio_buffer_output_stream(vm: &mut Vm, args: &[JValue]) -> R {
-    let buffer = args[0].as_obj();
+    let buffer = want_obj(vm, args[0])?;
     alloc(
         vm,
         "Ljava/io/OutputStream;",

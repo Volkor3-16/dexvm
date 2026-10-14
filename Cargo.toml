@@ -76,6 +76,10 @@ name = "moetruyen_decrypt"
 required-features = ["keiyoushi"]
 
 [[test]]
+name = "compat"
+required-features = ["keiyoushi"]
+
+[[test]]
 name = "live_moetruyen_net"
 required-features = ["keiyoushi"]
 

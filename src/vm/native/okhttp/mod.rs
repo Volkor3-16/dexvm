@@ -1554,11 +1554,14 @@ pub(crate) fn headers_iterator(vm: &mut Vm, args: &[JValue]) -> R {
         .map(|(k, v)| vm.alloc_string(&format!("{k}: {v}")))
         .collect();
     let list = list_alloc(vm, lines)?;
+    let Some(list_id) = list.as_obj_opt() else {
+        return Err(npe(vm));
+    };
     alloc(
         vm,
         "Ljava/util/Iterator;",
         Native::Iter(IterKind::List {
-            list: list.as_obj(),
+            list: list_id,
             idx: 0,
         }),
     )

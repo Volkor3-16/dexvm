@@ -567,7 +567,8 @@ pub(crate) fn prefs_set(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn prefs_set_title(vm: &mut Vm, args: &[JValue]) -> R {
-    let Some(obj) = vm.arena.objects.get_mut(args[0].as_obj() as usize) else {
+    let id = want_arg_obj(vm, args, 0)?;
+    let Some(obj) = vm.arena.objects.get_mut(id as usize) else {
         return Err(npe(vm));
     };
     let Some(native) = obj.native.as_mut() else {

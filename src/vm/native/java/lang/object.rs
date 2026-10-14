@@ -10,13 +10,13 @@ pub(crate) fn object_init(_vm: &mut Vm, _args: &[JValue]) -> R {
 }
 
 pub(crate) fn object_get_class(vm: &mut Vm, args: &[JValue]) -> R {
-    let recv = args[0].as_obj();
+    let recv = want_obj(vm, args[0])?;
     let class = obj_class(vm, recv);
     vm.class_obj(class).map_err(nat_fatal)
 }
 
 pub(crate) fn object_hash_code(_vm: &mut Vm, args: &[JValue]) -> R {
-    Ok(JValue::Int(args[0].as_obj() as i32))
+    Ok(JValue::Int(want_obj(_vm, args[0])? as i32))
 }
 
 pub(crate) fn object_equals(_vm: &mut Vm, args: &[JValue]) -> R {
@@ -29,7 +29,7 @@ pub(crate) fn object_equals(_vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn object_to_string(vm: &mut Vm, args: &[JValue]) -> R {
-    let recv = args[0].as_obj();
+    let recv = want_obj(vm, args[0])?;
     let class = obj_class(vm, recv);
     let name = vm.class_desc_str(class);
     Ok(new_str(vm, &format!("{name}@{:x}", recv)))
@@ -50,7 +50,7 @@ pub(crate) fn thread_local_set(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn object_clone(vm: &mut Vm, args: &[JValue]) -> R {
-    let recv = args[0].as_obj();
+    let recv = want_obj(vm, args[0])?;
     let class = obj_class(vm, recv);
     let Some(n) = payload(vm, args[0]) else {
         return Err(npe(vm));

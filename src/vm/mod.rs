@@ -732,6 +732,14 @@ impl Vm {
         Ok(id)
     }
 
+    /// Is there an implementation for this class descriptor — a declared shim
+    /// class, a built-in native table, a global native, or one the host
+    /// registered on this context? Hosts use it to report an API gap before a
+    /// run instead of reading a gap out of a panic message.
+    pub fn has_native_for(&self, desc: &str) -> bool {
+        self.shim_or_native(desc)
+    }
+
     fn shim_or_native(&self, desc: &str) -> bool {
         if class::SHIM_CLASSES.iter().any(|d| d.desc == desc) {
             return true;
@@ -1099,10 +1107,9 @@ impl Vm {
             args: Vec::new(),
             class_desc: 0,
         };
-        if receiver.is_null() {
-            return Err(JvmError::Fatal("invoke_virtual on null".into()));
-        }
-        let recv = receiver.as_obj();
+        let Some(recv) = receiver.as_obj_opt() else {
+            return Err(JvmError::Uncaught(self.err_npe()));
+        };
         let target = self.resolve_target(InvokeKind::Virtual, &mref, Some(recv), 0)?;
         let mut args = Vec::with_capacity(1 + mref.args.len());
         args.push(receiver);
@@ -1123,10 +1130,9 @@ impl Vm {
             args: Vec::new(),
             class_desc: 0,
         };
-        if receiver.is_null() {
-            return Err(JvmError::Fatal("invoke_virtual on null".into()));
-        }
-        let recv = receiver.as_obj();
+        let Some(recv) = receiver.as_obj_opt() else {
+            return Err(JvmError::Uncaught(self.err_npe()));
+        };
         let target = self.resolve_target(InvokeKind::Virtual, &mref, Some(recv), 0)?;
         let mut all = Vec::with_capacity(1 + args.len());
         all.push(receiver);
@@ -1287,11 +1293,13 @@ impl Vm {
 
     /// String payload of a java.lang.String value, if any.
     pub fn str_of_jvalue(&self, v: JValue) -> Option<String> {
-        if v.is_null() {
-            return None;
-        }
-        let id = v.as_obj();
-        match &self.arena.objects[id as usize].native {
+        let id = v.as_obj_opt()?;
+        match self
+            .arena
+            .objects
+            .get(id as usize)
+            .and_then(|o| o.native.as_ref())
+        {
             Some(object::Native::Str(s)) => Some(s.clone()),
             _ => None,
         }
@@ -1299,20 +1307,17 @@ impl Vm {
 
     /// Owned payload for a non-null object value.
     pub fn payload_of(&self, v: JValue) -> Option<object::Native> {
-        if v.is_null() {
-            return None;
-        }
-        let id = v.as_obj();
-        self.arena.objects[id as usize].native.clone()
+        let id = v.as_obj_opt()?;
+        self.arena
+            .objects
+            .get(id as usize)
+            .and_then(|o| o.native.clone())
     }
 
     /// Resolved class id for a non-null object value.
     pub fn object_class(&self, v: JValue) -> Option<u32> {
-        if v.is_null() {
-            return None;
-        }
-        let id = v.as_obj();
-        Some(self.arena.objects[id as usize].class)
+        let id = v.as_obj_opt()?;
+        self.arena.objects.get(id as usize).map(|o| o.class)
     }
 
     /// Calls a resolved target with a fresh frame (native or bytecode).
@@ -1331,7 +1336,7 @@ impl Vm {
                     .natives
                     .get(&key)
                     .ok_or_else(|| JvmError::Fatal(format!("no native for {key:?}")))?;
-                match f(self, &args) {
+                match self.call_native_guarded(f, &args) {
                     Ok(v) => Ok(v),
                     Err(NatErr::Throw(ex)) => Err(JvmError::Uncaught(ex)),
                     Err(NatErr::Fatal(e)) => Err(e),

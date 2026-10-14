@@ -147,9 +147,26 @@ fn form_decode(value: &str) -> Vec<u8> {
     out
 }
 
+/// `URLEncoder.encode(s, charset)` and `URLDecoder.decode(s, charset)` take the
+/// text as the *first* argument. Reading it from the wrong slot encoded the
+/// wrong string and indexed past the end of the argument list.
+fn form_value(vm: &mut Vm, args: &[JValue]) -> Result<String, NatErr> {
+    let Some(value) = args.first() else {
+        return Err(aioobe(vm, 0, args.len() as i32));
+    };
+    jstr(vm, *value)
+}
+
+/// Charset argument: UTF-8 when it is absent or not a string value.
+fn form_charset(vm: &Vm, args: &[JValue]) -> String {
+    args.get(1)
+        .and_then(|v| peek_str(vm, *v).map(|s| s.to_string()))
+        .unwrap_or_else(|| "UTF-8".to_string())
+}
+
 pub(crate) fn url_encoder_encode(vm: &mut Vm, args: &[JValue]) -> R {
-    let value = jstr(vm, args[1])?;
-    let charset = jstr(vm, args[2])?;
+    let value = form_value(vm, args)?;
+    let charset = form_charset(vm, args);
     let Some(charset) = super::super::nio::normalize_charset(&charset) else {
         return Err(iae(vm, format!("Unsupported charset: {charset}")));
     };
@@ -158,8 +175,8 @@ pub(crate) fn url_encoder_encode(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn url_decoder_decode(vm: &mut Vm, args: &[JValue]) -> R {
-    let value = jstr(vm, args[1])?;
-    let charset = jstr(vm, args[2])?;
+    let value = form_value(vm, args)?;
+    let charset = form_charset(vm, args);
     let Some(charset) = super::super::nio::normalize_charset(&charset) else {
         return Err(iae(vm, format!("Unsupported charset: {charset}")));
     };
@@ -243,9 +260,23 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         url_encoder_encode
     ),
     ne!(
+        "Ljava/net/URLEncoder;",
+        "encode",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        false,
+        url_encoder_encode
+    ),
+    ne!(
         "Ljava/net/URLDecoder;",
         "decode",
         "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        false,
+        url_decoder_decode
+    ),
+    ne!(
+        "Ljava/net/URLDecoder;",
+        "decode",
+        "(Ljava/lang/String;)Ljava/lang/String;",
         false,
         url_decoder_decode
     ),
@@ -281,5 +312,93 @@ mod tests {
         let encoded = form_encode("a b+c/你好".as_bytes());
         assert_eq!(encoded, "a+b%2Bc%2F%E4%BD%A0%E5%A5%BD");
         assert_eq!(form_text(&form_decode(&encoded), "UTF-8"), "a b+c/你好");
+    }
+
+    fn bare_vm() -> Vm {
+        Vm::new(vec![], Box::new(std::io::sink())).expect("bare vm")
+    }
+
+    fn text(vm: &Vm, v: JValue) -> String {
+        peek_str(vm, v).expect("string value").to_string()
+    }
+
+    /// The exception a rejected call raises, named the way real Java names it.
+    fn thrown(vm: &mut Vm, e: NatErr) -> String {
+        let NatErr::Throw(id) = e else {
+            panic!("expected a java throwable, got {e:?}");
+        };
+        let class = vm.arena.objects[id as usize].class;
+        vm.class_desc_str(class).to_string()
+    }
+
+    const RAW: &str = "a b&c=d/e+é";
+    const ENCODED: &str = "a+b%26c%3Dd%2Fe%2B%C3%A9";
+
+    #[test]
+    fn encode_takes_the_value_from_the_first_argument() {
+        let mut vm = bare_vm();
+        let value = new_str(&mut vm, RAW);
+        let charset = new_str(&mut vm, "UTF-8");
+        let out = url_encoder_encode(&mut vm, &[value, charset]).expect("encode");
+        assert_eq!(text(&vm, out), ENCODED, "encode the value, not the charset");
+    }
+
+    #[test]
+    fn both_platform_encode_overloads_are_registered() {
+        let sigs: Vec<&str> = TABLE
+            .iter()
+            .filter(|e| e.class == "Ljava/net/URLEncoder;" && e.name == "encode")
+            .map(|e| e.sig)
+            .collect();
+        assert_eq!(
+            sigs,
+            vec![
+                "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+            ],
+            "java.net.URLEncoder needs encode(s) as well as encode(s, charset)"
+        );
+    }
+
+    #[test]
+    fn single_argument_call_encodes_the_value_with_the_default_charset() {
+        let mut vm = bare_vm();
+        let value = new_str(&mut vm, RAW);
+        let out = url_encoder_encode(&mut vm, &[value]).expect("encode");
+        assert_eq!(text(&vm, out), ENCODED);
+    }
+
+    #[test]
+    fn decode_round_trips_the_encoded_value() {
+        let mut vm = bare_vm();
+        let encoded = new_str(&mut vm, ENCODED);
+        let charset = new_str(&mut vm, "UTF-8");
+        let out = url_decoder_decode(&mut vm, &[encoded, charset]).expect("decode");
+        assert_eq!(text(&vm, out), RAW);
+        let out = url_decoder_decode(&mut vm, &[encoded]).expect("decode");
+        assert_eq!(text(&vm, out), RAW);
+    }
+
+    #[test]
+    fn missing_and_mistyped_arguments_raise_java_exceptions() {
+        let mut vm = bare_vm();
+
+        let err = url_encoder_encode(&mut vm, &[]).expect_err("no argument at all");
+        assert_eq!(
+            thrown(&mut vm, err),
+            "java.lang.ArrayIndexOutOfBoundsException"
+        );
+
+        // A DEX null reference in the value slot.
+        let err = url_encoder_encode(&mut vm, &[JValue::Int(0)]).expect_err("null value");
+        assert_eq!(thrown(&mut vm, err), "java.lang.NullPointerException");
+    }
+
+    #[test]
+    fn a_charset_that_is_not_a_string_falls_back_to_utf8() {
+        let mut vm = bare_vm();
+        let value = new_str(&mut vm, RAW);
+        let out = url_encoder_encode(&mut vm, &[value, JValue::Int(7)]).expect("encode");
+        assert_eq!(text(&vm, out), ENCODED);
     }
 }

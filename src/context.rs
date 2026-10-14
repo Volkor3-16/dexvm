@@ -277,7 +277,8 @@ impl Context {
             }
         }
         fn walk(vm: &Vm, v: JValue) -> Option<SettingDefinition> {
-            let id = v.as_obj() as usize;
+            let obj = v.as_obj_opt()?;
+            let id = obj as usize;
             match vm.arena.objects.get(id).and_then(|o| o.native.as_ref()) {
                 Some(Native::Preference {
                     key,
@@ -934,7 +935,11 @@ mod tests {
                 "api.akuma.moe".into(),
             )))
             .map_err(NatErr::Fatal)?;
-            let s = match &vm.arena.objects[args[1].as_obj() as usize].native {
+            let s = match args[1]
+                .as_obj_opt()
+                .and_then(|id| vm.arena.objects.get(id as usize))
+                .and_then(|o| o.native.as_ref())
+            {
                 Some(crate::vm::object::Native::Str(s)) => s.clone(),
                 _ => String::new(),
             };

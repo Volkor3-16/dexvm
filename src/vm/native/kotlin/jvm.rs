@@ -2,7 +2,10 @@
 use crate::vm::native::*;
 
 fn spread_init(vm: &mut Vm, args: &[JValue]) -> R {
-    vm.arena.objects[args[0].as_obj() as usize].native = Some(Native::List(Vec::new()));
+    let this = want_obj(vm, args[0])?;
+    if let Some(spread) = vm.arena.objects.get_mut(this as usize) {
+        spread.native = Some(Native::List(Vec::new()));
+    }
     Ok(JValue::Null)
 }
 fn spread_add(vm: &mut Vm, args: &[JValue]) -> R {
@@ -66,7 +69,12 @@ fn collection_to_array_typed(vm: &mut Vm, args: &[JValue]) -> R {
             }
             return Ok(args[1]);
         }
-        let cls = vm.arena.objects[args[1].as_obj() as usize].class;
+        let Some(tpl) = args[1].as_obj_opt() else {
+            return Err(npe(vm));
+        };
+        let Some(cls) = vm.arena.objects.get(tpl as usize).map(|o| o.class) else {
+            return Err(npe(vm));
+        };
         return Ok(JValue::Obj(vm.arena.alloc(
             cls,
             Vec::new(),

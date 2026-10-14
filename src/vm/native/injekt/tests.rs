@@ -27,7 +27,10 @@ fn injekt_instance_falls_back_to_application() {
         // falls back to an Application opaque.
         let inst = injekt_get_instance(vm, &[]).unwrap();
         assert_eq!(
-            vm.class_desc_str(obj_class(vm, inst.as_obj())),
+            vm.class_desc_str(obj_class(
+                vm,
+                inst.as_obj_opt().expect("instance must be an object")
+            )),
             "android.app.Application"
         );
         // With a typed Type argument, the instance takes the concrete class.
@@ -41,7 +44,10 @@ fn injekt_instance_falls_back_to_application() {
         .unwrap();
         let inst = injekt_get_instance(vm, &[JValue::Null, t]).unwrap();
         assert_eq!(
-            vm.class_desc_str(obj_class(vm, inst.as_obj())),
+            vm.class_desc_str(obj_class(
+                vm,
+                inst.as_obj_opt().expect("instance must be an object")
+            )),
             "okhttp3.OkHttpClient"
         );
     });

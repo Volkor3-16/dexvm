@@ -25,7 +25,10 @@ fn exception_or_null(vm: &mut Vm, args: &[JValue]) -> R {
 }
 fn throw_on_failure(vm: &mut Vm, args: &[JValue]) -> R {
     if let Some(Native::ResultFailure(value)) = payload(vm, args[0]) {
-        return Err(NatErr::Throw(value.as_obj()));
+        let Some(id) = value.as_obj_opt() else {
+            return Err(npe(vm));
+        };
+        return Err(NatErr::Throw(id));
     }
     Ok(JValue::Null)
 }

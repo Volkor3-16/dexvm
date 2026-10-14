@@ -4,7 +4,11 @@ use crate::vm::native::*;
 
 fn init(vm: &mut Vm, args: &[JValue]) -> R {
     let value = jstr(vm, args[1])?;
-    vm.arena.objects[args[0].as_obj() as usize].native = Some(Native::URI(value));
+    let id = want_obj(vm, args[0])?;
+    let Some(this) = vm.arena.objects.get_mut(id as usize) else {
+        return Err(npe(vm));
+    };
+    this.native = Some(Native::URI(value));
     Ok(JValue::Null)
 }
 

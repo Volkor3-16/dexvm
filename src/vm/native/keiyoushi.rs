@@ -1129,7 +1129,7 @@ pub(crate) fn filter_list_get_filters(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn filter_list_iterator(vm: &mut Vm, args: &[JValue]) -> R {
-    let list = args[0].as_obj();
+    let list = want_obj(vm, args[0])?;
     alloc(
         vm,
         "Ljava/util/Iterator;",

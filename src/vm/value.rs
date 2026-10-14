@@ -68,6 +68,47 @@ impl JValue {
         }
     }
 
+    /// Reference slot as an arena id, with every non-reference reported as
+    /// absent. Use this where the caller already handles a missing object
+    /// (host lookups, payload reads) instead of demanding a reference.
+    pub fn as_obj_opt(&self) -> Option<u32> {
+        match self {
+            JValue::Obj(o) => Some(*o),
+            _ => None,
+        }
+    }
+
+    /// Reference slot as an arena id, reporting *why* it is not one so the
+    /// caller can raise the JVM-correct throwable instead of panicking.
+    pub fn as_obj_checked(&self) -> Result<u32, ValueTypeMismatch> {
+        match self {
+            JValue::Obj(o) => Ok(*o),
+            _ if self.is_null_ref() => Err(ValueTypeMismatch::NullRef),
+            other => Err(ValueTypeMismatch::WrongType(other.ty_tag())),
+        }
+    }
+
+    /// `as_int` without the panic: `Null` keeps the existing zero convention.
+    pub fn as_int_checked(&self) -> Result<i32, ValueTypeMismatch> {
+        match self {
+            JValue::Int(v) => Ok(*v),
+            JValue::Null => Ok(0),
+            other => Err(ValueTypeMismatch::WrongType(other.ty_tag())),
+        }
+    }
+
+    /// `as_long` without the panic. An `Int` is sign-extended: a caller that
+    /// reached a `J` parameter through a widened register is a calling
+    /// convention mistake, not a type error worth aborting a parse for.
+    pub fn as_long_checked(&self) -> Result<i64, ValueTypeMismatch> {
+        match self {
+            JValue::Long(v) => Ok(*v),
+            JValue::Int(v) => Ok(i64::from(*v)),
+            JValue::Null => Ok(0),
+            other => Err(ValueTypeMismatch::WrongType(other.ty_tag())),
+        }
+    }
+
     pub fn ty_tag(&self) -> &'static str {
         match self {
             JValue::Int(_) => "int",
@@ -78,6 +119,19 @@ impl JValue {
             JValue::Null => "null",
         }
     }
+}
+
+/// Why a value could not be read as the kind a native expected. The distinction
+/// matters because the JVM reaction differs: a DEX null reference is a
+/// `NullPointerException`, a genuinely wrong kind is a `ClassCastException`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueTypeMismatch {
+    /// A null reference in DEX semantics: `Null`, or the `Int(0)` that a
+    /// `const 0` leaves in an object-typed register.
+    NullRef,
+    /// A value of another kind (`int`, `long`, `float`, `double`) where a
+    /// reference was required, carrying the kind actually seen.
+    WrongType(&'static str),
 }
 
 /// Parse a type descriptor into its kind.

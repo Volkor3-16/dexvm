@@ -39,7 +39,7 @@ pub(crate) fn collections_identity(_vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn collections_sort(vm: &mut Vm, args: &[JValue]) -> R {
-    let list = args[0].as_obj();
+    let list = want_obj(vm, args[0])?;
     let items = match payload(vm, JValue::Obj(list)) {
         Some(Native::List(items)) => items.clone(),
         _ => return Err(npe(vm)),
@@ -67,7 +67,7 @@ pub(crate) fn collections_sort(vm: &mut Vm, args: &[JValue]) -> R {
 }
 
 pub(crate) fn collections_reverse(vm: &mut Vm, args: &[JValue]) -> R {
-    let list = args[0].as_obj();
+    let list = want_obj(vm, args[0])?;
     let items = match payload(vm, JValue::Obj(list)) {
         Some(Native::List(items)) => items.clone(),
         _ => return Err(npe(vm)),
