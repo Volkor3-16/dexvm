@@ -791,6 +791,7 @@ pub(crate) fn json_decode_from_json_element(vm: &mut Vm, args: &[JValue]) -> R {
 /// reports that source as blocked rather than failed.
 fn json_decode_failure(vm: &mut Vm, text: &str, error: impl std::fmt::Display) -> NatErr {
     if html_response_body(text) {
+        note_blocked_response();
         serialization_exception(vm, format!("json: {error} ({HTML_RESPONSE_MARKER})"))
     } else {
         serialization_exception(vm, format!("json: {error}"))

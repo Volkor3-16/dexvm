@@ -382,6 +382,7 @@ fn html_response_body_fails_as_serialization_exception() {
     let mut ctx = context(MOETRUYEN);
     let text = string_id(&mut ctx, HTML_BLOCK_PAGE);
 
+    let before = dexvm::vm::native::blocked_response_count();
     let err = match ctx.call(
         "Lkotlinx/serialization/json/Json;",
         "decodeFromString",
@@ -408,6 +409,13 @@ fn html_response_body_fails_as_serialization_exception() {
     assert!(
         msg.contains(dexvm::vm::native::HTML_RESPONSE_MARKER),
         "an html body must carry the blocked marker: {msg}"
+    );
+    // The host can also see it without reading the message: the blocked-payload
+    // counter moves, which is how a source is reported as blocked even when the
+    // extension catches the exception and fails later for another reason.
+    assert!(
+        dexvm::vm::native::blocked_response_count() > before,
+        "an html payload must be counted as a blocked response"
     );
 }
 

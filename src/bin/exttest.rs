@@ -33,6 +33,10 @@ struct SourceResult {
     supports_latest: bool,
     operations: BTreeMap<String, OperationResult>,
     filters: Vec<FilterResult>,
+    /// Responses this source was handed as an HTML document where it asked for
+    /// its own JSON: the site blocked it, the VM did not fail.
+    #[serde(default)]
+    blocked_payloads: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -349,7 +353,12 @@ fn run_tests(config: &TestConfig) -> Result<TestReport, Box<dyn std::error::Erro
         for src in &ext_result.sources {
             let status = match &src.error {
                 None => "passed",
-                Some(err) if classify_error_str(err) == ErrorType::Blocked => "blocked",
+                Some(err)
+                    if src.blocked_payloads > 0
+                        || classify_error_str(err) == ErrorType::Blocked =>
+                {
+                    "blocked"
+                }
                 Some(_) => "failed",
             };
             *sources_by_status.entry(status.to_string()).or_insert(0) += 1;
@@ -839,6 +848,7 @@ fn test_source(
 ) -> Result<SourceResult, Box<dyn std::error::Error>> {
     let _source_start = Instant::now();
     let mut operations = BTreeMap::new();
+    let blocked_before = dexvm::vm::native::blocked_response_count();
     let mut source_error: Option<String> = None;
 
     // Get source metadata - fail if any of these fail
@@ -1063,6 +1073,7 @@ fn test_source(
                     source_id,
                     supports_latest,
                     operations,
+                    blocked_payloads: blocked_payloads_since(blocked_before),
                     filters: filters_for_search
                         .into_iter()
                         .map(|f| FilterResult {
@@ -1252,6 +1263,7 @@ fn test_source(
         source_id,
         supports_latest,
         operations,
+        blocked_payloads: blocked_payloads_since(blocked_before),
         filters: filter_results,
         error: source_error,
     })
@@ -1493,6 +1505,11 @@ fn classify_error(err: &JvmError) -> ErrorType {
 }
 
 /// Fallback for when we only have the error string (e.g., from describe_error)
+/// Blocked-payload responses this source saw since `blocked_before`.
+fn blocked_payloads_since(before: u64) -> u64 {
+    dexvm::vm::native::blocked_response_count().saturating_sub(before)
+}
+
 /// True when a failure message says the payload was an HTML page rather than
 /// the source's own data — the blocked-site signature the summary buckets.
 fn is_blocked_error_text(err: &str) -> bool {
@@ -1545,7 +1562,8 @@ fn build_summary(extensions: &[ExtensionResult]) -> Summary {
                     .any(|op| !op.success && op.error_type.as_deref() != Some("skipped"));
             let all_skipped = !has_success && !has_failure;
 
-            let blocked = src.error.as_deref().is_some_and(is_blocked_error_text)
+            let blocked = src.blocked_payloads > 0
+                || src.error.as_deref().is_some_and(is_blocked_error_text)
                 || src.operations.values().any(|op| {
                     !op.success && op.error.as_deref().is_some_and(is_blocked_error_text)
                 });

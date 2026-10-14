@@ -365,6 +365,22 @@ pub fn is_blocked_response_error(err: &str) -> bool {
     err.contains(HTML_RESPONSE_MARKER)
 }
 
+static BLOCKED_RESPONSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Record that a response was an HTML page where the source asked for its own
+/// structured data. The counter is monotonic for the process, like
+/// [`native_panic_count`], so a host can snapshot it around one source and
+/// report that source as blocked even when the extension catches the exception
+/// and fails later for another reason.
+pub(crate) fn note_blocked_response() {
+    BLOCKED_RESPONSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Blocked-payload responses seen so far in this process.
+pub fn blocked_response_count() -> u64 {
+    BLOCKED_RESPONSES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `kotlinx.serialization.SerializationException`, the exception a Kotlin
 /// serializer raises when the bytes it was given are not the JSON it expected.
 /// Extensions wrap their parses in `try`/`catch`, so a decode failure has to
