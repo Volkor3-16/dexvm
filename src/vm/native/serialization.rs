@@ -1744,47 +1744,148 @@ fn json_builder_set(_vm: &mut Vm, _args: &[JValue]) -> R {
     Ok(JValue::Null)
 }
 
-/// A `Json` the shim creates is the only `Json` those sources will ever hold:
-/// `JsonKt.Json$default` is a top-level call, so its `json` parameter arrives
-/// null and the shim has to materialize the object itself. A `Json` whose
-/// `module` / `classDiscriminatorMode` fields are unset makes the extension's
-/// own null checks fire — `module must not be null`, `classDiscriminatorMode
-/// must not be null` — before any byte of data is parsed. Give it the platform
-/// defaults instead of an empty shell.
+/// A `Json` the shim builds has to look like the one the bundled kotlinx builds.
+/// The dex-side bundle reads its own fields — `Json.serializersModule`,
+/// `Json.configuration`, `JsonConfiguration.classDiscriminatorMode` — and a
+/// shim-fabricated object has none of them, so the extension's own Kotlin null
+/// checks fire (`module must not be null`, `classDiscriminatorMode must not be
+/// null`) before any byte of data is parsed. Materialize the platform defaults
+/// under the names the bytecode actually reads.
 fn ensure_json_defaults(vm: &mut Vm, json: JValue) {
     let JValue::Obj(obj) = json else { return };
-    if vm
-        .instance_field(obj, "module")
+
+    if let Ok(module) = ensure_serializers_module(vm, json) {
+        vm.instance_field_set(obj, "serializersModule", module);
+        // An older bundle names the same value `module`; keep both records
+        // consistent so either getter finds it — the dex-declared field and the
+        // shim's own record of the object.
+        vm.instance_field_set(obj, "module", module);
+        if !matches!(payload(vm, json), Some(Native::JsonWithModule { .. })) {
+            vm.arena.objects[obj as usize].native = Some(Native::JsonWithModule { module });
+        }
+    }
+
+    let configuration = match vm.instance_field(obj, "configuration") {
+        Some(v) if !v.is_null_ref() => v,
+        _ => match alloc(
+            vm,
+            "Lkotlinx/serialization/json/JsonConfiguration;",
+            Native::Opaque,
+        ) {
+            Ok(v) => v,
+            Err(_) => return,
+        },
+    };
+    ensure_class_discriminator_mode(vm, configuration);
+    vm.instance_field_set(obj, "configuration", configuration);
+}
+
+/// Seed the fields a constructor would have stored on an object the host had to
+/// materialize itself.
+///
+/// Every host-side factory that hands dex bytecode an instance without running
+/// that class's own `<init>` — `JsonKt.Json$default`, a `JsonBuilder` built for
+/// a `Json { }` block, injekt DI resolving `FullTypeReference<Json>` — produces
+/// an object whose dex-declared fields are all null. The bundled kotlinx reads
+/// those fields back with Kotlin null checks, so an empty shell fails inside the
+/// extension (`module must not be null`) before it parses a byte. This is the
+/// one place that knows what each of those classes' defaults are.
+pub(crate) fn apply_class_defaults(vm: &mut Vm, value: JValue) {
+    let class = match vm.object_class(value) {
+        Some(c) => c,
+        None => return,
+    };
+    match vm.class_desc_str(class).as_str() {
+        "kotlinx.serialization.json.Json"
+        | "kotlinx.serialization.json.Json$Default"
+        | "kotlinx.serialization.json.JsonBuilder" => ensure_json_defaults(vm, value),
+        "kotlinx.serialization.json.JsonConfiguration" => {
+            ensure_class_discriminator_mode(vm, value)
+        }
+        _ => {}
+    }
+}
+
+/// The `SerializersModule` of a `Json`/`JsonBuilder`, materializing the empty
+/// platform module when the object carries none.
+fn ensure_serializers_module(vm: &mut Vm, obj: JValue) -> Result<JValue, NatErr> {
+    let id = obj_id(obj);
+    if id == 0 {
+        return Ok(JValue::Null);
+    }
+    if let Some(v) = vm.instance_field(id, "serializersModule") {
+        if !v.is_null_ref() {
+            return Ok(v);
+        }
+    }
+    let carried = match payload(vm, obj) {
+        Some(Native::JsonWithModule { module }) => Some(*module),
+        _ => None,
+    };
+    if let Some(module) = carried {
+        vm.instance_field_set(id, "serializersModule", module);
+        return Ok(module);
+    }
+    let module = alloc(
+        vm,
+        "Lkotlinx/serialization/modules/SerializersModule;",
+        Native::SerializersModule { polys: Vec::new() },
+    )?;
+    vm.instance_field_set(id, "serializersModule", module);
+    Ok(module)
+}
+
+fn obj_id(v: JValue) -> u32 {
+    match v {
+        JValue::Obj(o) => o,
+        _ => 0,
+    }
+}
+
+/// `JsonConfiguration.classDiscriminatorMode` — never null, because the bundle
+/// passes it to a non-null parameter of its own encode path.
+fn ensure_class_discriminator_mode(vm: &mut Vm, configuration: JValue) {
+    let JValue::Obj(c) = configuration else {
+        return;
+    };
+    if !vm
+        .instance_field(c, "classDiscriminatorMode")
         .is_none_or(|v| v.is_null_ref())
     {
-        let module = alloc(
-            vm,
-            "Lkotlinx/serialization/modules/SerializersModule;",
-            Native::SerializersModule { polys: Vec::new() },
-        );
-        if let Ok(module) = module {
-            // Best effort on the dex-declared field, and always on the shim's
-            // own record of the object: the bundled kotlinx `Json` in a modern
-            // extension reads the field, an older one never declares it.
-            vm.instance_field_set(obj, "module", module);
-            if !matches!(payload(vm, json), Some(Native::JsonWithModule { .. })) {
-                vm.arena.objects[obj as usize].native = Some(Native::JsonWithModule { module });
+        return;
+    }
+    let mode = class_discriminator_mode(vm);
+    vm.instance_field_set(c, "classDiscriminatorMode", mode);
+}
+
+/// `ClassDiscriminatorMode.POLYMORPHIC_WHEN_ANNOTATED`, the kotlinx default. Use
+/// the bundle's own enum constant when the dex defines the enum, so `when`
+/// switches and ordinal comparisons in extension bytecode see a real value; a
+/// shim enum instance is the fallback for a bundle that lacks it.
+fn class_discriminator_mode(vm: &mut Vm) -> JValue {
+    const DESC: &str = "Lkotlinx/serialization/json/ClassDiscriminatorMode;";
+    for name in ["POLYMORPHIC_WHEN_ANNOTATED", "ALWAYS"] {
+        let key = new_str(vm, name);
+        if let Ok(v) = vm.invoke_static(
+            DESC,
+            "valueOf",
+            "(Ljava/lang/String;)Lkotlinx/serialization/json/ClassDiscriminatorMode;",
+            vec![key],
+        ) {
+            if !v.is_null_ref() {
+                return v;
             }
         }
     }
-    if vm
-        .instance_field(obj, "classDiscriminatorMode")
-        .is_none_or(|v| v.is_null_ref())
-    {
-        let mode = alloc(
-            vm,
-            "Lkotlinx/serialization/json/JsonClassDiscriminatorMode;",
-            Native::Opaque,
-        );
-        if let Ok(mode) = mode {
-            vm.instance_field_set(obj, "classDiscriminatorMode", mode);
-        }
-    }
+    alloc(
+        vm,
+        DESC,
+        Native::Enum {
+            name: "POLYMORPHIC_WHEN_ANNOTATED".into(),
+            ordinal: 0,
+        },
+    )
+    .unwrap_or(JValue::Null)
 }
 
 /// `JsonKt.Json$default(json, block, mask, marker)` — runs the builder block
@@ -1797,6 +1898,10 @@ fn json_builder_default(vm: &mut Vm, args: &[JValue]) -> R {
             "Lkotlinx/serialization/json/JsonBuilder;",
             Native::Opaque,
         )?;
+        // A dex-side `Json(block)` reads the builder's own fields; an empty
+        // builder hands null to `Json.<init>` and the extension then trips its
+        // own null check. Start it with the platform module.
+        ensure_serializers_module(vm, builder)?;
         invoke_function1(vm, args[1], builder)?;
         if let Some(Native::SerializersModule { polys }) = payload(vm, builder) {
             let polys = polys.clone();

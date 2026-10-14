@@ -276,6 +276,31 @@ impl Vm {
     }
 
     /// Dotted class name for a class id, e.g. `a.b.Main`.
+    /// `Class;->method` of the innermost interpreter frame. Used by natives
+    /// that need to name the bytecode that reached them — a Kotlin intrinsic
+    /// failing is a fact about the caller, not about the intrinsic.
+    pub fn current_frame_desc(&self) -> String {
+        self.frame_chain(1)
+    }
+
+    /// The innermost `n` interpreter frames as `Class;->method <- …`, oldest
+    /// last. A null that reached a Kotlin intrinsic came from somewhere in this
+    /// chain, and the chain is what names it.
+    pub fn frame_chain(&self, n: usize) -> String {
+        let start = self.frames.len().saturating_sub(n);
+        self.frames[start..]
+            .iter()
+            .rev()
+            .map(|f| {
+                let class = self.class_desc_str(f.class);
+                let name =
+                    self.str_of(self.classes[f.class as usize].methods[f.slot as usize].name);
+                format!("{class}->{name}@{:#06x}", f.pc)
+            })
+            .collect::<Vec<_>>()
+            .join(" <- ")
+    }
+
     pub fn class_desc_str(&self, class: u32) -> String {
         crate::vm::value::dotted_name(self.str_of(self.classes[class as usize].descriptor))
     }

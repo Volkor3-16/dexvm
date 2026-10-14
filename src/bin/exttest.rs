@@ -178,7 +178,45 @@ enum HttpMode {
     Live,
 }
 
+/// Minimal stderr logger so the VM's `INV`/`ERR` traces are visible when
+/// diagnosing a replay. `RUST_LOG=warn ./exttest …` turns them on; without it
+/// the replay output stays as quiet as it always was.
+struct StderrLogger;
+
+impl log::Log for StderrLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Trace
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{} {}", record.level(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static TRACE_LOGGER: StderrLogger = StderrLogger;
+
+fn init_trace_logger() {
+    let Ok(spec) = std::env::var("RUST_LOG") else {
+        return;
+    };
+    let level = match spec.split('=').next().unwrap_or("warn") {
+        "trace" => log::LevelFilter::Trace,
+        "debug" => log::LevelFilter::Debug,
+        "info" => log::LevelFilter::Info,
+        "off" => log::LevelFilter::Off,
+        _ => log::LevelFilter::Warn,
+    };
+    if log::set_logger(&TRACE_LOGGER).is_ok() {
+        log::set_max_level(level);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_trace_logger();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut config = TestConfig {
         apk_filter: None,

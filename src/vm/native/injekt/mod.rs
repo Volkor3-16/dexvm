@@ -17,12 +17,23 @@ pub(crate) fn injekt_get_injekt(vm: &mut Vm, _args: &[JValue]) -> R {
 /// type carried by the `java.lang.reflect.Type` argument (which
 /// `FullTypeReference.getType()` fills with the receiver's generic
 /// signature). Falls back to an Application opaque when the type is unknown.
+///
+/// The instance is built by the host, not by the class's own `<init>`, so the
+/// fields that constructor would have stored are seeded here: extensions resolve
+/// their `Json` through injekt, and a `Json` without `serializersModule` /
+/// `configuration` trips the bundled kotlinx's own null checks inside the
+/// extension.
 pub(crate) fn injekt_get_instance(vm: &mut Vm, args: &[JValue]) -> R {
     let desc = match args.get(1).and_then(|t| payload(vm, *t)) {
         Some(Native::Type { desc }) => desc.clone(),
         _ => "Landroid/app/Application;".to_string(),
     };
-    alloc(vm, &desc, Native::Opaque)
+    let obj = alloc(vm, &desc, Native::Opaque)?;
+    // The kotlinx defaults are known to the tachiyomi serialization shim; a
+    // build without it has no `Json` to seed.
+    #[cfg(feature = "tachiyomi")]
+    crate::vm::native::serialization::apply_class_defaults(vm, obj);
+    Ok(obj)
 }
 
 pub(crate) fn injekt_full_type_init(_vm: &mut Vm, _args: &[JValue]) -> R {

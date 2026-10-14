@@ -21,7 +21,7 @@ pub struct Frame {
     decoded: Arc<crate::dex::insn::Decoded>,
     tries: Arc<[TryItem]>,
     regs: Vec<JValue>,
-    pc: usize,
+    pub(crate) pc: usize,
     err_pc: usize,
     result: JValue,
     pending_exc: Option<JValue>,

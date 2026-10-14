@@ -24,6 +24,9 @@ use dexvm::vm::{NatErr, NativeEntry, Vm};
 
 const AKUMA: &str = "fixtures/tachiyomi-all.akuma-v1.4.10.apk";
 const MOETRUYEN: &str = "fixtures/tachiyomi-vi.moetruyen-v1.6.8.apk";
+/// A fixture that bundles its own kotlinx: the `Json` whose fields the bytecode
+/// reads is the dex-declared one, which is what the defaults have to land on.
+const ALLANIME: &str = "fixtures/keiyoushi_all/tachiyomi-en.allanime-v1.6.29.apk";
 
 /// Classic (pre-1.6) generation response shape.
 const AKUMA_POPULAR_HTML: &str = r#"<html><body>
@@ -444,5 +447,103 @@ fn non_json_body_fails_as_serialization_exception() {
     assert!(
         !throwable_message(&mut ctx, thrown).contains(dexvm::vm::native::HTML_RESPONSE_MARKER),
         "a plain bad payload must not be labelled blocked"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. a `Json` the host builds carries the defaults its constructor would have
+//    stored, under the names the bundled kotlinx reads
+// ---------------------------------------------------------------------------
+
+#[test]
+fn host_materialized_json_carries_the_defaults_kotlinx_reads() {
+    init_logger();
+    // The extension resolves its `Json` through injekt DI, so the instance is
+    // built by the host. Before the defaults were seeded, every source here
+    // died inside the bundled kotlinx with `module must not be null` /
+    // `classDiscriminatorMode must not be null` before parsing a byte.
+    let mut ext = Keiyoushi::open(ALLANIME).expect("open allanime fixture");
+    ext.set_http(canned(
+        r#"[{"title":"Noir Starlight","url":"/anime/noir-starlight/"}]"#,
+    ));
+    let srcs = ext.sources().expect("sources");
+    let src = &srcs[0];
+
+    let outcome = ext
+        .latest_coro(src, 1)
+        .map(|page| format!("ok:{} manga", page.mangas.len()))
+        .unwrap_or_else(|e| ext.describe_error(&e));
+    assert!(
+        !outcome.contains("module must not be null"),
+        "kotlinx must not see a null serializers module: {outcome}"
+    );
+    assert!(
+        !outcome.contains("classDiscriminatorMode must not be null"),
+        "JsonConfiguration.classDiscriminatorMode is never null in kotlinx: {outcome}"
+    );
+}
+
+/// The fields those defaults live in are the dex-declared ones, not names the
+/// shim invented: a `Json` the host builds must answer the getters the bytecode
+/// calls.
+#[test]
+fn host_materialized_json_answers_the_getters_the_bytecode_calls() {
+    init_logger();
+    let mut ctx = context(ALLANIME);
+    let json = ctx
+        .call(
+            "Lkotlinx/serialization/json/JsonKt;",
+            "Json$default",
+            &[JValue::Null, JValue::Null, JValue::Int(3), JValue::Null],
+        )
+        .expect("Json$default");
+    let JValue::Obj(json) = json else {
+        panic!("Json$default must return a Json, got {json:?}")
+    };
+    let module = ctx
+        .call(
+            "Lkotlinx/serialization/json/Json;",
+            "getSerializersModule",
+            &[JValue::Obj(json)],
+        )
+        .expect("Json.getSerializersModule()");
+    assert!(
+        !module.is_null_ref(),
+        "a Json without a module cannot encode"
+    );
+}
+
+#[test]
+fn check_not_null_expression_value_raises_a_catchable_npe() {
+    init_logger();
+    let mut ctx = context(AKUMA);
+    let expr = string_id(&mut ctx, "json.serializersModule");
+
+    let ok = ctx
+        .call(
+            "Lkotlin/jvm/internal/Intrinsics;",
+            "checkNotNullExpressionValue",
+            &[JValue::Obj(expr), JValue::Obj(expr)],
+        )
+        .expect("a non-null value passes the intrinsic");
+    assert!(ok.is_null_ref(), "the intrinsic returns void");
+
+    let err = ctx
+        .call(
+            "Lkotlin/jvm/internal/Intrinsics;",
+            "checkNotNullExpressionValue",
+            &[JValue::Int(0), JValue::Obj(expr)],
+        )
+        .expect_err("a null value must not pass the intrinsic");
+    let JvmError::Uncaught(thrown) = err else {
+        panic!("expected an uncaught java throwable, got {err:?}");
+    };
+    assert_eq!(
+        throwable_class(&mut ctx, thrown),
+        "java.lang.NullPointerException"
+    );
+    assert!(
+        throwable_message(&mut ctx, thrown).contains("json.serializersModule"),
+        "the message names the expression Kotlin names"
     );
 }
