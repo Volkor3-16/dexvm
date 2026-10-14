@@ -44,7 +44,11 @@ pub(super) fn collections_remove_all(vm: &mut Vm, args: &[JValue]) -> R {
                 vec![value],
             )
             .map_err(nat_fatal)?;
-        if result.as_int() != 0 {
+        // `Function1.invoke` answers with a boxed java.lang.Boolean, not an int:
+        // reading it with `as_int` aborted the process through the native
+        // boundary, twice per replay for the source that filters its list this
+        // way.
+        if bool_of(vm, result) {
             removed = true;
         } else {
             kept.push(value);
