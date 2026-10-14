@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use log::debug;
+use log::{debug, warn};
 
 use crate::dex::insn::{Args, Binop, CmpOp, FillArray, IfOp, Insn, InvokeKind, Unop};
 use crate::dex::TryItem;
@@ -1327,6 +1327,24 @@ impl Vm {
                     debug!("DBG inv {tcls:?} {}", self.str_of(mref.name));
                 }
                 if *kind == InvokeKind::Direct && self.str_of(mref.name) == "<init>" {
+                    // Kotlin's synthetic default-argument constructors take an int mask and
+                    // a `DefaultConstructorMarker`; every parameter whose bit is set in the
+                    // mask is substituted *inside* the constructor body. When a substitution
+                    // does not happen, that constructor's own `checkNotNullParameter` blames
+                    // the caller for a null it was supposed to fill in, so name the mask.
+                    if self
+                        .str_of(mref.sig)
+                        .ends_with("DefaultConstructorMarker;)V")
+                    {
+                        let mask = (args.count >= 2)
+                            .then(|| f.regs[args.reg_at(args.count - 2) as usize])
+                            .filter(|v| matches!(v, JValue::Int(_) | JValue::Long(_)));
+                        warn!(
+                            "INV default-ctor {} mask={mask:?} argc={}",
+                            tcls.clone().unwrap_or_default(),
+                            args.count
+                        );
+                    }
                     let a0 = f.regs[args.reg_at(0) as usize];
                     if let JValue::Obj(a0) = a0 {
                         let cdesc =

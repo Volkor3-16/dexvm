@@ -1085,13 +1085,26 @@ impl Vm {
     pub fn static_field_get(&mut self, fr: FieldRef) -> Result<JValue, JvmError> {
         let start = self.ensure_class_by_desc_id(fr.class_desc)?;
         let (owner, off) = self.static_field_owner(start, fr)?;
+        // A static read of a class whose `<clinit>` is already running sees its
+        // fields before they are assigned. Java cannot reach that single-threaded;
+        // this VM can, and the symptom is a null that the bytecode treats as a value.
+        let reentrant = self.classes[owner as usize].clinit_state == 1;
         self.ensure_class_initialized(owner)?;
         if let Some(lazy) = self.classes[owner as usize].statics_lazy[off as usize] {
             let v = lazy(self);
             self.classes[owner as usize].statics[off as usize] = v;
             self.classes[owner as usize].statics_lazy[off as usize] = None;
         }
-        Ok(self.classes[owner as usize].statics[off as usize])
+        let v = self.classes[owner as usize].statics[off as usize];
+        if reentrant {
+            log::warn!(
+                "INV static-read-while-initializing {} {} -> {:?}",
+                self.str_of(self.classes[owner as usize].descriptor),
+                self.str_of(fr.name),
+                v
+            );
+        }
+        Ok(v)
     }
 
     pub fn static_field_put(&mut self, fr: FieldRef, v: JValue) -> Result<(), JvmError> {
