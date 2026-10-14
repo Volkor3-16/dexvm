@@ -392,6 +392,14 @@ pub(crate) fn class_get_interfaces(_vm: &mut Vm, _args: &[JValue]) -> R {
 // ---------------------------------------------------------------------------
 
 /// Native methods for Ljava/lang/Class;
+/// `java.lang.Class.getClassifier()` is how Kotlin reaches a `KClassifier` from
+/// `javaClass`. In this VM a `Class` object already is the class handle, so it
+/// returns itself — the same identity `Reflection.getOrCreateKotlinClass` uses
+/// for a `KClass`, which is a `KClassifier`.
+pub(crate) fn class_get_classifier(_vm: &mut Vm, args: &[JValue]) -> R {
+    Ok(args[0])
+}
+
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
         "Ljava/lang/Class;",
@@ -429,6 +437,13 @@ pub(crate) const TABLE: &[NativeEntry] = &[
         class_is_instance
     ),
     ne!("Ljava/lang/Class;", "isArray", "()Z", true, class_is_array),
+    ne!(
+        "Ljava/lang/Class;",
+        "getClassifier",
+        "()Lkotlin/reflect/KClassifier;",
+        true,
+        class_get_classifier
+    ),
     ne!(
         "Ljava/lang/Class;",
         "isPrimitive",

@@ -904,6 +904,10 @@ pub(crate) fn okhttp_builder_build(vm: &mut Vm, args: &[JValue]) -> R {
 
 // ---- request building (FormBody / HttpUrl / RequestsKt) ----
 
+pub(crate) fn lazy_headers_companion(vm: &mut Vm) -> JValue {
+    opaque_inst(vm, "Lokhttp3/Headers$Companion;")
+}
+
 pub(crate) fn lazy_http_url_companion(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lokhttp3/HttpUrl$Companion;")
 }
@@ -946,6 +950,93 @@ pub(crate) fn lazy_cache_control_force_cache(vm: &mut Vm) -> JValue {
 
 pub(crate) fn lazy_media_type_companion(vm: &mut Vm) -> JValue {
     opaque_inst(vm, "Lokhttp3/MediaType$Companion;")
+}
+
+// ---- MultipartBody / MultipartBody$Builder shims ----
+//
+// A body records its boundary and the `addFormDataPart(name, value)` pairs the
+// sources actually build. Not modelled: a part carrying its own RequestBody (it
+// is chained, not stored) — the VM never writes a multipart body to a socket.
+
+static MULTIPART_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn multipart_boundary(vm: &mut Vm) -> String {
+    let n = MULTIPART_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _ = vm;
+    format!("----DexVmMultipart{n:016x}")
+}
+
+fn multipart_given_or_new_boundary(vm: &mut Vm, args: &[JValue]) -> String {
+    match args.get(1) {
+        Some(v) if !v.is_null() => jstr(vm, *v).unwrap_or_default(),
+        _ => multipart_boundary(vm),
+    }
+}
+
+pub(crate) fn multipart_body_init(vm: &mut Vm, args: &[JValue]) -> R {
+    let boundary = multipart_given_or_new_boundary(vm, args);
+    alloc(
+        vm,
+        "Lokhttp3/MultipartBody;",
+        Native::MultipartBody {
+            boundary,
+            parts: Vec::new(),
+        },
+    )
+}
+
+pub(crate) fn multipart_boundary_of(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::MultipartBody { boundary, .. }) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    let boundary = boundary.clone();
+    Ok(new_str(vm, &boundary))
+}
+
+pub(crate) fn multipart_size(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::MultipartBody { parts, .. }) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    Ok(JValue::Int(parts.len() as i32))
+}
+
+pub(crate) fn multipart_new_builder(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::MultipartBody { boundary, .. }) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    let boundary = boundary.clone();
+    alloc(
+        vm,
+        "Lokhttp3/MultipartBody$Builder;",
+        Native::MultipartBody {
+            boundary,
+            parts: Vec::new(),
+        },
+    )
+}
+
+pub(crate) fn multipart_add_named(vm: &mut Vm, args: &[JValue]) -> R {
+    let name = jstr(vm, args[1]).unwrap_or_default();
+    let value = args
+        .get(2)
+        .filter(|v| !v.is_null())
+        .map(|v| jstr(vm, *v).unwrap_or_default())
+        .unwrap_or_default();
+    let Some(Native::MultipartBody { parts, .. }) = payload_mut(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    parts.push((name, value));
+    Ok(args[0])
+}
+
+pub(crate) fn multipart_add_chain(vm: &mut Vm, args: &[JValue]) -> R {
+    // A part built elsewhere, or a content-type change: the call is valid and
+    // chaining continues, but there is no name/value pair to record.
+    if payload(vm, args[0]).is_some_and(|p| matches!(p, Native::MultipartBody { .. })) {
+        Ok(args[0])
+    } else {
+        Err(npe(vm))
+    }
 }
 
 pub(crate) fn okhttp_form_builder_init(vm: &mut Vm, _args: &[JValue]) -> R {
@@ -2256,11 +2347,25 @@ pub(crate) fn multipart_builder_init(vm: &mut Vm, args: &[JValue]) -> R {
     let Some(JValue::Obj(this)) = args.first().copied() else {
         return Err(npe(vm));
     };
-    vm.arena.objects[this as usize].native = Some(Native::Opaque);
+    let boundary = multipart_given_or_new_boundary(vm, args);
+    vm.arena.objects[this as usize].native = Some(Native::MultipartBody {
+        boundary,
+        parts: Vec::new(),
+    });
     Ok(JValue::Null)
 }
 
-pub(crate) fn multipart_builder_add_form_data_part(_vm: &mut Vm, args: &[JValue]) -> R {
+pub(crate) fn multipart_builder_add_form_data_part(vm: &mut Vm, args: &[JValue]) -> R {
+    let name = jstr(vm, args[1]).unwrap_or_default();
+    let value = args
+        .get(2)
+        .filter(|v| !v.is_null())
+        .map(|v| jstr(vm, *v).unwrap_or_default())
+        .unwrap_or_default();
+    let Some(Native::MultipartBody { parts, .. }) = payload_mut(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    parts.push((name, value));
     Ok(args[0])
 }
 
@@ -2268,9 +2373,20 @@ pub(crate) fn multipart_builder_set_type(_vm: &mut Vm, args: &[JValue]) -> R {
     Ok(args[0])
 }
 
-pub(crate) fn multipart_builder_build(_vm: &mut Vm, _args: &[JValue]) -> R {
-    warn!("MultipartBody: multipart/form-data bodies are not forwarded to the host");
-    Ok(JValue::Null)
+pub(crate) fn multipart_builder_build(vm: &mut Vm, args: &[JValue]) -> R {
+    let Some(Native::MultipartBody { boundary, parts }) = payload(vm, args[0]) else {
+        return Err(npe(vm));
+    };
+    let (boundary, parts) = (boundary.clone(), parts.clone());
+    warn!(
+        "MultipartBody: multipart/form-data bodies are not forwarded to the host ({} part(s) recorded)",
+        parts.len()
+    );
+    alloc(
+        vm,
+        "Lokhttp3/MultipartBody;",
+        Native::MultipartBody { boundary, parts },
+    )
 }
 
 pub(crate) fn http_url_query(vm: &mut Vm, args: &[JValue]) -> R {
@@ -2829,6 +2945,22 @@ pub(crate) const OKHTTP_TABLE: &[NativeEntry] = &[
     ne!("Lokhttp3/OkHttpClient$Builder;", "interceptors", "()Ljava/util/List;", true, okhttp_builder_interceptors),
     ne!("Lokhttp3/OkHttpClient$Builder;", "networkInterceptors", "()Ljava/util/List;", true, okhttp_builder_network_interceptors),
     ne!("Lokhttp3/OkHttpClient$Builder;", "build", "()Lokhttp3/OkHttpClient;", true, okhttp_builder_build),
+    ne!("Lokhttp3/MultipartBody;", "<init>", "(Ljava/lang/String;)V", true, multipart_body_init),
+    ne!("Lokhttp3/MultipartBody;", "boundary", "()Ljava/lang/String;", true, multipart_boundary_of),
+    ne!("Lokhttp3/MultipartBody;", "size", "()I", true, multipart_size),
+    ne!("Lokhttp3/MultipartBody;", "newBuilder", "(Ljava/lang/String;)Lokhttp3/MultipartBody$Builder;", true, multipart_new_builder),
+    ne!("Lokhttp3/MultipartBody;", "newBuilder", "()Lokhttp3/MultipartBody$Builder;", true, multipart_new_builder),
+    ne!("Lokhttp3/MultipartBody$Builder;", "<init>", "()V", true, multipart_builder_init),
+    ne!("Lokhttp3/MultipartBody$Builder;", "<init>", "(Ljava/lang/String;)V", true, multipart_builder_init),
+    ne!("Lokhttp3/MultipartBody$Builder;", "<init>", "(IJ)V", true, multipart_builder_init),
+    ne!("Lokhttp3/MultipartBody$Builder;", "addPart", "(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/MultipartBody$Builder;", true, multipart_add_named),
+    ne!("Lokhttp3/MultipartBody$Builder;", "addPart", "(Ljava/lang/String;Ljava/lang/String;Lokhttp3/RequestBody;)Lokhttp3/MultipartBody$Builder;", true, multipart_add_named),
+    ne!("Lokhttp3/MultipartBody$Builder;", "addPart", "(Lokhttp3/MultipartBody$Part;)Lokhttp3/MultipartBody$Builder;", true, multipart_add_chain),
+    ne!("Lokhttp3/MultipartBody$Builder;", "addPart", "(Lokhttp3/RequestBody;)Lokhttp3/MultipartBody$Builder;", true, multipart_add_chain),
+    ne!("Lokhttp3/MultipartBody$Builder;", "addFormDataPart", "(Ljava/lang/String;Ljava/lang/String;Lokhttp3/RequestBody;)Lokhttp3/MultipartBody$Builder;", true, multipart_add_named),
+    ne!("Lokhttp3/MultipartBody$Builder;", "setType", "(J)Lokhttp3/MultipartBody$Builder;", true, multipart_add_chain),
+    ne!("Lokhttp3/MultipartBody$Builder;", "boundary", "()Ljava/lang/String;", true, multipart_boundary_of),
+    ne!("Lokhttp3/MultipartBody$Builder;", "size", "()I", true, multipart_size),
     ne!("Lokhttp3/FormBody$Builder;", "<init>", "(Ljava/nio/charset/Charset;ILkotlin/jvm/internal/DefaultConstructorMarker;)V", true, okhttp_form_builder_init),
     ne!("Lokhttp3/FormBody$Builder;", "add", "(Ljava/lang/String;Ljava/lang/String;)Lokhttp3/FormBody$Builder;", true, okhttp_form_builder_add),
     ne!("Lokhttp3/FormBody$Builder;", "build", "()Lokhttp3/FormBody;", true, okhttp_form_builder_build),

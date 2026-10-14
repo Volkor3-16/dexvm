@@ -529,6 +529,12 @@ pub enum Native {
     HttpUrl(String),
     /// okhttp3.FormBody / FormBody$Builder: name/value pairs.
     FormBody(Vec<(String, String)>),
+    /// `okhttp3.MultipartBody`: the boundary it reports and the form parts built
+    /// through `addFormDataPart(name, value)`.
+    MultipartBody {
+        boundary: String,
+        parts: Vec<(String, String)>,
+    },
     /// okhttp3.Request produced by the RequestsKt helpers or Request$Builder.
     Request {
         url: String,
@@ -1155,6 +1161,7 @@ impl Native {
             | Native::ReentrantLock { .. }
             | Native::HttpUrl(_)
             | Native::FormBody(_)
+            | Native::MultipartBody { .. }
             | Native::Headers(_)
             | Native::Cookie { .. }
             | Native::Field { .. }

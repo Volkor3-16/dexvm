@@ -87,10 +87,8 @@ version_const_lazy!(lazy_version_codename_lazy, "REL");
 version_const_lazy!(lazy_version_incremental_lazy, "1");
 version_const_lazy!(lazy_version_release_lazy, "14");
 version_const_lazy!(lazy_version_sdk_lazy, "34");
-version_const_lazy!(lazy_version_sdk_int_lazy, "34");
 version_const_lazy!(lazy_version_security_patch_lazy, "2024-01-01");
 version_const_lazy!(lazy_version_base_os_lazy, "");
-version_const_lazy!(lazy_version_preview_sdk_int_lazy, "0");
 
 // android.os.Build host shims.
 

@@ -48,6 +48,40 @@ pub(crate) fn condition_signal_all(_vm: &mut Vm, _args: &[JValue]) -> R {
     Ok(JValue::Null)
 }
 
+// java.util.concurrent.locks.ReentrantReadWriteLock host shims.
+//
+// This VM runs one Java thread, so a read/write lock never contends: a view is
+// always free to take and no waiter can queue. `readLock()`/`writeLock()` hand
+// out a fresh view per call because bytecode holds them as separate references
+// (`lock.readLock().lock()` builds one, `unlock()` builds another).
+
+pub(crate) fn rw_lock_view(vm: &mut Vm, desc: &'static str) -> R {
+    alloc(vm, desc, Native::Opaque)
+}
+
+pub(crate) fn rw_read_lock(vm: &mut Vm, _args: &[JValue]) -> R {
+    rw_lock_view(
+        vm,
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+    )
+}
+
+pub(crate) fn rw_write_lock(vm: &mut Vm, _args: &[JValue]) -> R {
+    rw_lock_view(
+        vm,
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+    )
+}
+
+pub(crate) fn rw_lock_void(_vm: &mut Vm, _args: &[JValue]) -> R {
+    Ok(JValue::Null)
+}
+
+pub(crate) fn rw_try_lock(_vm: &mut Vm, _args: &[JValue]) -> R {
+    // Nothing else can hold it here, so a non-blocking acquire always wins.
+    Ok(JValue::Int(1))
+}
+
 /// Native methods for Ljava/util/concurrent/locks/ReentrantLock;
 pub(crate) const TABLE: &[NativeEntry] = &[
     ne!(
@@ -80,6 +114,161 @@ pub(crate) const TABLE: &[NativeEntry] = &[
     ),
     ne!(
         "Ljava/util/concurrent/locks/ReentrantLock;",
+        "newCondition",
+        "()Ljava/util/concurrent/locks/Condition;",
+        true,
+        reentrant_lock_new_condition
+    ),
+    // ReentrantReadWriteLock and its read/write views.
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "<init>",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "<init>",
+        "(Z)V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "readLock",
+        "()Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        true,
+        rw_read_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "writeLock",
+        "()Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        true,
+        rw_write_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "lock",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "lockInterruptibly",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "unlock",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "tryLock",
+        "()Z",
+        true,
+        rw_try_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "tryLock",
+        "(JLjava/util/concurrent/TimeUnit;)Z",
+        true,
+        rw_try_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        "newCondition",
+        "()Ljava/util/concurrent/locks/Condition;",
+        true,
+        reentrant_lock_new_condition
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "<init>",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "lock",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "lockInterruptibly",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "unlock",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "tryLock",
+        "()Z",
+        true,
+        rw_try_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "newCondition",
+        "()Ljava/util/concurrent/locks/Condition;",
+        true,
+        reentrant_lock_new_condition
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "<init>",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "lock",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "lockInterruptibly",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "unlock",
+        "()V",
+        true,
+        rw_lock_void
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "tryLock",
+        "()Z",
+        true,
+        rw_try_lock
+    ),
+    ne!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
         "newCondition",
         "()Ljava/util/concurrent/locks/Condition;",
         true,

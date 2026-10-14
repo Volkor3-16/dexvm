@@ -8,6 +8,8 @@ mod lang;
 mod math;
 mod net;
 mod nio;
+#[cfg(feature = "android")]
+mod os;
 mod security;
 mod text;
 mod r#time;
@@ -20,6 +22,8 @@ pub(crate) use self::nio::*;
 #[cfg(feature = "tachiyomi")]
 pub(crate) use eu::lazy_app_info_instance;
 pub(crate) use lang::*;
+#[cfg(feature = "android")]
+pub(crate) use os::*;
 pub(crate) use r#time::{
     lazy_chrono_field_am_pm_of_day, lazy_chrono_field_clock_hour_of_am_pm,
     lazy_chrono_field_day_of_month, lazy_chrono_field_day_of_week,
@@ -47,6 +51,8 @@ pub(crate) fn java_tables(out: &mut Vec<&'static [NativeEntry]>) {
     #[cfg(feature = "android")]
     out.extend(io::FILE_TABLE.iter().copied());
     out.extend(net::NET_TABLE.iter().copied());
+    #[cfg(feature = "android")]
+    out.extend(os::BUILD_TABLE.iter().copied());
     out.extend(nio::NIO_TABLE.iter().copied());
     out.extend(security::SECURITY_TABLE.iter().copied());
     out.push(javax_crypto::JAVAX_CRYPTO_TABLE);

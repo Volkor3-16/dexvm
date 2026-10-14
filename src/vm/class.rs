@@ -644,7 +644,23 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         0
     ),
     #[cfg(feature = "okhttp")]
-    shim!("Lokhttp3/Headers;", Some("Ljava/lang/Object;"), &[], 0),
+    #[cfg(feature = "okhttp")]
+    shim!(
+        "Lokhttp3/Headers;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            // `Headers.Companion` is a real static field and `Headers$Companion`
+            // was already a registered class: only the field was missing, so every
+            // read died as `no static field Companion`.
+            sdef!(
+                "Companion",
+                "Lokhttp3/Headers$Companion;",
+                ShimValue::Lazy(native::lazy_headers_companion)
+            ),
+        ]
+    ),
     #[cfg(feature = "okhttp")]
     shim!(
         "Lokhttp3/RequestBody;",
@@ -1559,6 +1575,181 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
             "Ljava/io/Serializable;"
         ],
         0
+    ),
+    shim!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock;",
+        Some("Ljava/lang/Object;"),
+        &["Ljava/util/concurrent/locks/Lock;"],
+        0
+    ),
+    shim!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        Some("Ljava/lang/Object;"),
+        &["Ljava/util/concurrent/locks/Lock;"],
+        0
+    ),
+    shim!(
+        "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        Some("Ljava/lang/Object;"),
+        &["Ljava/util/concurrent/locks/Lock;"],
+        0
+    ),
+    // kotlin.jvm.internal.markers: pure marker interfaces the bundled kotlinx
+    // collections implement (`JsonObject` is a `Map`, so it is a `KMappedMarker`).
+    // They have no members; without them the resolver could not name them.
+    #[cfg(feature = "kotlin")]
+    shim!(
+        "Lkotlin/jvm/internal/markers/KMappedMarker;",
+        None,
+        &[],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    #[cfg(feature = "kotlin")]
+    shim!(
+        "Lkotlin/jvm/internal/markers/KMutableCollection;",
+        None,
+        &["Lkotlin/jvm/internal/markers/KMappedMarker;"],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    #[cfg(feature = "kotlin")]
+    shim!(
+        "Lkotlin/jvm/internal/markers/KMutableList;",
+        None,
+        &["Lkotlin/jvm/internal/markers/KMutableCollection;"],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    // android.os.Build / Build.VERSION. The shims existed in
+    // `native/java/os/build.rs` but that module was never wired into the build,
+    // so a source reading `Build.VERSION.SDK_INT` died at class resolution.
+    #[cfg(feature = "android")]
+    shim!(
+        "Landroid/os/Build;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            sdef!(
+                "BOARD",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_board_lazy)
+            ),
+            sdef!(
+                "BOOTLOADER",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_bootloader_lazy)
+            ),
+            sdef!(
+                "BRAND",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_brand_lazy)
+            ),
+            sdef!(
+                "DEVICE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_device_lazy)
+            ),
+            sdef!(
+                "DISPLAY",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_display_lazy)
+            ),
+            sdef!(
+                "FINGERPRINT",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_fingerprint_lazy)
+            ),
+            sdef!(
+                "HARDWARE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_hardware_lazy)
+            ),
+            sdef!(
+                "HOST",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_host_lazy)
+            ),
+            sdef!(
+                "ID",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_id_lazy)
+            ),
+            sdef!(
+                "MANUFACTURER",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_manufacturer_lazy)
+            ),
+            sdef!(
+                "MODEL",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_model_lazy)
+            ),
+            sdef!(
+                "PRODUCT",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_product_lazy)
+            ),
+            sdef!(
+                "SERIAL",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_serial_lazy)
+            ),
+            sdef!(
+                "TAGS",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_tags_lazy)
+            ),
+            sdef!(
+                "TYPE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_type_lazy)
+            ),
+            sdef!(
+                "USER",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_build_user_lazy)
+            ),
+        ]
+    ),
+    #[cfg(feature = "android")]
+    shim!(
+        "Landroid/os/Build$VERSION;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0,
+        [
+            sdef!("SDK_INT", "I", ShimValue::Const(JValue::Int(34))),
+            sdef!("PREVIEW_SDK_INT", "I", ShimValue::Const(JValue::Int(0))),
+            sdef!(
+                "SDK",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_sdk_lazy)
+            ),
+            sdef!(
+                "RELEASE",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_release_lazy)
+            ),
+            sdef!(
+                "CODENAME",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_codename_lazy)
+            ),
+            sdef!(
+                "INCREMENTAL",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_incremental_lazy)
+            ),
+            sdef!(
+                "SECURITY_PATCH",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_security_patch_lazy)
+            ),
+            sdef!(
+                "BASE_OS",
+                "Ljava/lang/String;",
+                ShimValue::Lazy(native::lazy_version_base_os_lazy)
+            ),
+        ]
     ),
     shim!(
         "Ljava/util/concurrent/locks/Condition;",
@@ -3218,6 +3409,21 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
     #[cfg(feature = "okhttp")]
     shim!(
         "Lokhttp3/Headers$Companion;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0
+    ),
+    #[cfg(feature = "okhttp")]
+    #[cfg(feature = "okhttp")]
+    shim!(
+        "Lokhttp3/MultipartBody;",
+        Some("Ljava/lang/Object;"),
+        &[],
+        0
+    ),
+    #[cfg(feature = "okhttp")]
+    shim!(
+        "Lokhttp3/MultipartBody$Part;",
         Some("Ljava/lang/Object;"),
         &[],
         0
