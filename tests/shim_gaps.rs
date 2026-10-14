@@ -187,3 +187,97 @@ fn headers_companion_field_and_kotlin_markers_resolve() {
         }
     });
 }
+
+/// The class-hierarchy members the replay names once class loading stops failing
+/// silently: `java.lang.annotation.Annotation` is the declared superclass of
+/// every annotation class in the bundled kotlinx/protobuf tables, and the other
+/// three are interfaces an extension implements or is passed. Each must resolve
+/// as the interface it is, with the supertype the platform API declares.
+#[test]
+fn annotation_and_marker_interfaces_resolve_as_interfaces() {
+    with_vm(|vm| {
+        let annotation = vm
+            .ensure_class_by_desc("Ljava/lang/annotation/Annotation;")
+            .expect("register java.lang.annotation.Annotation");
+        let element = vm
+            .ensure_class_by_desc("Ljava/lang/reflect/AnnotatedElement;")
+            .expect("register java.lang.reflect.AnnotatedElement");
+        assert_eq!(
+            vm.classes[annotation as usize].interfaces,
+            vec![element],
+            "Annotation declares AnnotatedElement"
+        );
+
+        for (desc, dotted) in [
+            (
+                "Ljava/lang/annotation/Annotation;",
+                "java.lang.annotation.Annotation",
+            ),
+            (
+                "Ljavax/net/ssl/HostnameVerifier;",
+                "javax.net.ssl.HostnameVerifier",
+            ),
+            (
+                "Leu/kanade/tachiyomi/source/UnmeteredSource;",
+                "eu.kanade.tachiyomi.source.UnmeteredSource",
+            ),
+            (
+                "Landroid/app/Application$ActivityLifecycleCallbacks;",
+                "android.app.Application$ActivityLifecycleCallbacks",
+            ),
+        ] {
+            let class = vm
+                .ensure_class_by_desc(desc)
+                .unwrap_or_else(|e| panic!("register {desc}: {e}"));
+            assert_eq!(vm.class_desc_str(class), dotted);
+            assert!(
+                vm.classes[class as usize].is_interface,
+                "{dotted} is an interface"
+            );
+        }
+    });
+}
+
+/// `okhttp3.Protocol.HTTP_1_1` and friends are read with `sget-object`, so they
+/// have to be static fields carrying real enum values.
+#[test]
+fn okhttp_protocol_constants_read_as_enum_values() {
+    with_vm(|vm| {
+        let protocol = vm
+            .ensure_class_by_desc("Lokhttp3/Protocol;")
+            .expect("register okhttp3.Protocol");
+        let java_enum = vm
+            .ensure_class_by_desc("Ljava/lang/Enum;")
+            .expect("register java.lang.Enum");
+        assert_eq!(
+            vm.classes[protocol as usize].superclass,
+            Some(java_enum),
+            "Protocol is a java.lang.Enum"
+        );
+
+        for (name, ordinal) in [
+            ("HTTP_1_0", 0),
+            ("HTTP_1_1", 1),
+            ("SPDY_3", 2),
+            ("HTTP_2", 3),
+            ("CLEARTEXT", 4),
+        ] {
+            let value = static_of(vm, "Lokhttp3/Protocol;", name, "Lokhttp3/Protocol;");
+            assert_eq!(
+                vm.class_desc_str(vm.object_class(value).unwrap()),
+                "okhttp3.Protocol",
+                "Protocol.{name} is a Protocol"
+            );
+            match vm.payload_of(value) {
+                Some(Native::Enum {
+                    name: n,
+                    ordinal: o,
+                }) => {
+                    assert_eq!(n, name, "Protocol.{name} carries its own name");
+                    assert_eq!(o, ordinal, "Protocol.{name} keeps its ordinal");
+                }
+                _ => panic!("Protocol.{name} must carry an enum payload"),
+            }
+        }
+    });
+}

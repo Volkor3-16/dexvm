@@ -3130,5 +3130,43 @@ pub(crate) const OKHTTP_TABLE: &[NativeEntry] = &[
     ne!("Lokhttp3/CacheControl$Builder;", "noStore", "()Lokhttp3/CacheControl$Builder;", true, cache_control_builder_no_store),
 ];
 
+// ---------------------------------------------------------------------------
+// okhttp3.Protocol. Extensions pin the HTTP version through
+// `OkHttpClient$Builder.protocols(listOf(Protocol.HTTP_1_1))`; the enum values
+// have to be real enum objects so `name()`/`ordinal()` and identity behave.
+// ---------------------------------------------------------------------------
+
+fn protocol_enum(vm: &mut Vm, name: &str, ordinal: i32) -> JValue {
+    alloc(
+        vm,
+        "Lokhttp3/Protocol;",
+        Native::Enum {
+            name: name.into(),
+            ordinal,
+        },
+    )
+    .expect("alloc okhttp3.Protocol")
+}
+
+pub(crate) fn lazy_protocol_http_1_0(vm: &mut Vm) -> JValue {
+    protocol_enum(vm, "HTTP_1_0", 0)
+}
+
+pub(crate) fn lazy_protocol_http_1_1(vm: &mut Vm) -> JValue {
+    protocol_enum(vm, "HTTP_1_1", 1)
+}
+
+pub(crate) fn lazy_protocol_spdy_3(vm: &mut Vm) -> JValue {
+    protocol_enum(vm, "SPDY_3", 2)
+}
+
+pub(crate) fn lazy_protocol_http_2(vm: &mut Vm) -> JValue {
+    protocol_enum(vm, "HTTP_2", 3)
+}
+
+pub(crate) fn lazy_protocol_cleartext(vm: &mut Vm) -> JValue {
+    protocol_enum(vm, "CLEARTEXT", 4)
+}
+
 #[cfg(test)]
 mod tests;

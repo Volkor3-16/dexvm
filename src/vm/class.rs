@@ -1594,6 +1594,81 @@ pub static SHIM_CLASSES: &[ShimDef] = &[
         &["Ljava/util/concurrent/locks/Lock;"],
         0
     ),
+    // Class-hierarchy members the replay names once class loading stops failing
+    // silently: each is referenced by extension or library bytecode, declared by
+    // no dex, and was unregistered, so the class naming it died at resolution.
+    //
+    // `java.lang.annotation.Annotation` is the declared superclass of every
+    // annotation class in the bundled kotlinx/protobuf tables — 652 failed
+    // resolutions in one replay, the largest single gap left after the loading
+    // stack fix.
+    shim!(
+        "Ljava/lang/annotation/Annotation;",
+        None,
+        &["Ljava/lang/reflect/AnnotatedElement;"],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    // javax.net.ssl: a few sources verify the TLS peer themselves.
+    shim!(
+        "Ljavax/net/ssl/HostnameVerifier;",
+        None,
+        &[],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    // eu.kanade.tachiyomi.source.UnmeteredSource: the marker interface a source
+    // implements to say it is free.
+    #[cfg(feature = "tachiyomi")]
+    shim!(
+        "Leu/kanade/tachiyomi/source/UnmeteredSource;",
+        None,
+        &[],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    // android.app.Application.ActivityLifecycleCallbacks: the lifecycle observer
+    // an extension registers on the application it is handed.
+    #[cfg(feature = "android")]
+    shim!(
+        "Landroid/app/Application$ActivityLifecycleCallbacks;",
+        None,
+        &[],
+        ACC_INTERFACE | ACC_ABSTRACT
+    ),
+    // okhttp3.Protocol: the HTTP version enum passed to
+    // `OkHttpClient$Builder.protocols(...)`.
+    #[cfg(feature = "okhttp")]
+    shim!(
+        "Lokhttp3/Protocol;",
+        Some("Ljava/lang/Enum;"),
+        &[],
+        ACC_PUBLIC | ACC_FINAL | ACC_ENUM,
+        [
+            sdef!(
+                "HTTP_1_0",
+                "Lokhttp3/Protocol;",
+                ShimValue::Lazy(native::lazy_protocol_http_1_0)
+            ),
+            sdef!(
+                "HTTP_1_1",
+                "Lokhttp3/Protocol;",
+                ShimValue::Lazy(native::lazy_protocol_http_1_1)
+            ),
+            sdef!(
+                "SPDY_3",
+                "Lokhttp3/Protocol;",
+                ShimValue::Lazy(native::lazy_protocol_spdy_3)
+            ),
+            sdef!(
+                "HTTP_2",
+                "Lokhttp3/Protocol;",
+                ShimValue::Lazy(native::lazy_protocol_http_2)
+            ),
+            sdef!(
+                "CLEARTEXT",
+                "Lokhttp3/Protocol;",
+                ShimValue::Lazy(native::lazy_protocol_cleartext)
+            ),
+        ]
+    ),
     // kotlin.jvm.internal.markers: pure marker interfaces the bundled kotlinx
     // collections implement (`JsonObject` is a `Map`, so it is a `KMappedMarker`).
     // They have no members; without them the resolver could not name them.
